@@ -8,6 +8,7 @@ module Data.Grid
 , getM
 , setM
 , sizeM
+, fillM
 , foldGridM
 , runGridOp
 , execGridOp
@@ -104,6 +105,12 @@ setM (x, y) o = GridOpCtor $ \mg -> MV.write (_vectorM mg) (y * (widthM mg) + x)
 sizeM :: GridOp o (Int, Int)
 sizeM = GridOpCtor $ \mg -> return . _sizeM $ mg
 
+fillM :: o -> GridOp o ()
+fillM o = do
+    (w, h) <- sizeM
+    forM_ [0..h-1] $ \y -> do
+        forM_ [0..w-1] $ \x -> do
+            setM (x, y) o
 
 foldGridM :: (a -> (Int, Int) -> o -> a) -> a -> GridOp o a
 foldGridM fn a = GridOpCtor $ \mg -> do

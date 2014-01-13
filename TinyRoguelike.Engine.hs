@@ -1,0 +1,223 @@
+{-# OPTIONS_GHC -XRankNTypes #-}
+
+module TinyRoguelike.Engine
+( Floor (..)
+, Wall (..)
+, Item (..)
+, NpcRace (..)
+, NpcId
+, Npc (Npc)
+, Tile (Tile)
+, mkTile
+, Level
+, LevelOp
+, getFloor, getItem, getWall, getNpc
+, setFloor, setItem, setWall, setNpc
+, moveFloor, moveItem, moveWall, moveNpc
+, GameState (GameStateCtor)
+, Pos
+, GameOp, runGameOp, execGameOp, evalGameOp
+, NpcOp, runNpcOp
+, runLevelOp
+, foldLevelM
+, Direction (..)
+) where
+
+import System.IO
+import Data.Grid
+import Data.Maybe
+import qualified Data.Vector.Mutable as MV
+import Control.Monad
+import Control.Monad.Operation
+import Control.Monad.Identity
+import Control.Applicative
+
+------------------------------------------------
+-- Basic data structures for the map
+------------------------------------------------
+
+data Floor = Stone | Lava deriving (Eq, Ord, Enum)
+data Wall = Brick | Rubble deriving (Eq, Ord, Enum)
+data Item = Sword | Ectoplasm deriving (Eq, Ord, Enum)
+data NpcRace = Player | Rat | Goblin deriving (Eq, Ord, Enum)
+
+type NpcId = Int
+newtype Npc = Npc (NpcRace, NpcId) deriving Eq
+
+instance Show Floor where
+    show Stone = "."
+    show Lava = "~"
+
+instance Show Wall where
+    show Brick = "#"
+    show Rubble = "%"
+
+instance Show Item where
+    show Sword = "/"
+    show Ectoplasm = "!"
+
+instance Show Npc where
+    show (Npc (Player, _)) = "@"
+    show (Npc (Rat, _)) = "r"
+    show (Npc (Goblin, _)) = "g"
+
+data Tile = Tile
+    { _floor :: Maybe Floor
+    , _item :: Maybe Item
+    , _wall :: Maybe Wall
+    , _npc :: Maybe Npc
+    }
+
+instance Show Tile where
+    show (Tile _ _ _ (Just o)) = show o
+    show (Tile _ _ (Just o) _) = show o
+    show (Tile _ (Just o) _ _) = show o
+    show (Tile (Just o) _ _ _) = show o
+    show _ = " "
+
+mkTile :: Maybe Floor -> Maybe Item -> Maybe Wall -> Maybe Npc -> Tile
+mkTile f i w n = Tile f i w n
+
+------------------------------------------------
+-- Level related functions
+-- They are all in the GridOp monad because they
+-- deal with a mutable vector.
+------------------------------------------------
+
+type Level = Grid Tile
+type LevelOp = GridOp Tile
+
+-- Base function to extract a property of a tile
+getObject :: (Tile -> o) -> (Int, Int) -> LevelOp o
+getObject fn pos = do
+    t <- getM pos
+    return $ fn t
+
+-- Getters for various things found in a tile
+getFloor = getObject _floor
+getItem = getObject _item
+getWall = getObject _wall
+getNpc = getObject _npc
+
+-- Setters for various things found in a tile
+-- Not using a base function because fields are not first class.
+
+setFloor :: (Int, Int) -> Maybe Floor -> LevelOp ()
+setFloor pos o = do
+    t <- getM pos
+    setM pos $ t { _floor = o }
+
+setItem :: (Int, Int) -> Maybe Item -> LevelOp ()
+setItem pos o = do
+    t <- getM pos
+    setM pos $ t { _item = o }
+
+setWall :: (Int, Int) -> Maybe Wall -> LevelOp ()
+setWall pos o = do
+    t <- getM pos
+    setM pos $ t { _wall = o }
+
+setNpc :: (Int, Int) -> Maybe Npc -> LevelOp ()
+setNpc pos o = do
+    t <- getM pos
+    setM pos $ t { _npc = o }
+
+-- Functions to move objects
+--moveObject :: ((Int, Int) -> WorldOp (Maybe o)) -> ((Int, Int) -> (Maybe o) -> WorldOp ()) -> (Int, Int) -> (Int, Int) -> WorldOp ()
+moveObject getter setter p1 p2 = do
+    o1 <- getter p1
+    o2 <- getter p2
+    if (isJust o1 && isNothing o2)
+        then do
+            setter p1 Nothing
+            setter p2 o1
+            return True
+        else return False
+
+moveFloor = moveObject getFloor setFloor
+moveItem = moveObject getItem setItem
+moveWall = moveObject getWall setWall
+moveNpc = moveObject getNpc setNpc
+
+findOnLevel :: (Tile -> Bool) -> LevelOp (Maybe Pos)
+findOnLevel fn = do
+    pos <- foldGridM foldFn Nothing
+    return pos
+    where
+        foldFn acc pos t = case fn t of
+                                True -> Just pos
+                                False -> acc
+
+
+data GameState = GameStateCtor
+    { _worldMap :: Grid Tile
+    , _inventory :: [Item]
+    , _messages :: [String]
+    }
+
+type Pos = (Int, Int)
+{-
+data GameOpT
+type GameOp = OperationST GameOpT (GameState, forall s. MV.MVector s Tile)
+-}
+
+data GameOp r = GameOpCtor { _gameOpFn :: GameState -> LevelOp (r, GameState) }
+
+instance Monad GameOp where
+    return ret = GameOpCtor $ \game -> return (ret, game)
+    m >>= fn = GameOpCtor $ \game -> do
+        (ret, game') <- _gameOpFn m game
+        _gameOpFn (fn ret) game'
+
+runGameOp :: GameState -> GameOp r -> (r, GameState)
+runGameOp game op = (ret, game'')
+    where
+        ((ret, game'), newGrid) = runGridOp (_worldMap game) (_gameOpFn op game)
+        game'' = game' { _worldMap = newGrid }
+
+evalGameOp game op = fst $ runGameOp game op
+execGameOp game op = snd $ runGameOp game op
+
+foldLevelM :: (acc -> Pos -> Tile -> acc) -> acc -> GameOp acc
+foldLevelM fn acc = GameOpCtor $ \game -> do
+    ret <- foldGridM fn acc
+    return (ret, game)
+
+runLevelOp :: LevelOp r -> GameOp r
+runLevelOp op = GameOpCtor $ \game -> do
+    ret <- op
+    return (ret, game)
+
+data NpcOp r = NpcOpCtor { _npcOpFn :: Pos -> GameOp (r, Pos) }
+
+instance Monad NpcOp where
+    return ret = NpcOpCtor $ \pos -> return (ret, pos)
+    m >>= fn = NpcOpCtor $ \pos -> do
+        (ret, pos') <- _npcOpFn m pos
+        _npcOpFn (fn ret) pos'
+
+runNpcOp :: Npc -> NpcOp r -> GameOp r
+runNpcOp npc op = do
+    Just pos <- runLevelOp $ findOnLevel (\t -> _npc t == Just npc)
+    (r, pos') <- _npcOpFn op pos
+    return r
+
+data Direction = North | East | South | West
+
+npcWalk :: Direction -> NpcOp Bool
+npcWalk d = NpcOpCtor $ \(x, y) -> do
+    let newPos = case d of
+                    North -> (x, y-1)
+                    South -> (x, y+1)
+                    East  -> (x-1, y)
+                    West  -> (x+1, y)
+    ret <- runLevelOp $ moveNpc (x, y) newPos
+    return (ret, if ret then newPos else (x, y))
+
+
+
+
+
+
+
+
