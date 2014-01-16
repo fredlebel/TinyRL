@@ -19,11 +19,14 @@ module TinyRoguelike.Engine
 , GameOp, runGameOp, execGameOp, evalGameOp
 , NpcOp, runNpcOp
 , runLevelOp
+, npcWalk, whoAmI
 , foldLevelM
 , Direction (..)
+, RandomizedMonad (..)
 ) where
 
 import System.IO
+import System.Random
 import Data.Grid
 import Data.Maybe
 import qualified Data.Vector.Mutable as MV
@@ -153,6 +156,7 @@ data GameState = GameStateCtor
     { _worldMap :: Grid Tile
     , _inventory :: [Item]
     , _messages :: [String]
+    , _rnd :: StdGen
     }
 
 type Pos = (Int, Int)
@@ -203,7 +207,17 @@ runNpcOp npc op = do
     return r
 
 data Direction = North | East | South | West
+    deriving (Eq, Bounded, Enum)
 
+instance Random Direction where
+    random g =
+            case randomR (min, max) g of (r, g') -> (toEnum r, g')
+            where
+                min = fromEnum (minBound :: Direction)
+                max = fromEnum (maxBound :: Direction)
+    randomR (a,b) g = case randomR (fromEnum a, fromEnum b) g of
+                        (r, g') -> (toEnum r, g')
+                        
 npcWalk :: Direction -> NpcOp Bool
 npcWalk d = NpcOpCtor $ \(x, y) -> do
     let newPos = case d of
@@ -214,9 +228,24 @@ npcWalk d = NpcOpCtor $ \(x, y) -> do
     ret <- runLevelOp $ moveNpc (x, y) newPos
     return (ret, if ret then newPos else (x, y))
 
+whoAmI :: NpcOp (Npc, Pos)
+whoAmI = NpcOpCtor $ \pos -> do
+    Just npc <- runLevelOp $ getNpc pos
+    return ((npc, pos), pos)
 
+-- GameOp and NpcOp expose a random generator
+class Monad m => RandomizedMonad m where
+    getRandom :: (StdGen -> (ret, StdGen)) -> m ret
+    
+instance RandomizedMonad GameOp where
+    getRandom fn = GameOpCtor $ \game -> do
+        let (ret, g) = fn (_rnd game)
+        return (ret, game { _rnd = g })
 
-
+instance RandomizedMonad NpcOp where
+    getRandom fn = NpcOpCtor $ \pos -> do
+        ret <- getRandom fn
+        return (ret, pos)
 
 
 

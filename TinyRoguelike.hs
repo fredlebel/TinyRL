@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -XRankNTypes #-}
 
 import System.IO
+import System.Random
 import Data.Grid
 import Data.Maybe
 import qualified Data.Vector.Mutable as MV
@@ -66,7 +67,7 @@ main :: IO ()
 main = do
 
     let floorTile = mkTile (Just Stone) Nothing Nothing Nothing
-    let game = GameStateCtor (mkGrid (30, 10) floorTile) [] []
+    let game = GameStateCtor (mkGrid (30, 10) floorTile) [] [] (mkStdGen 1234)
     
     gameLoop $ execGameOp game populate
 
@@ -102,25 +103,30 @@ findAllNpcs = foldNpcs foldFn []
     where
         foldFn acc pos npc = npc : acc
 
---move :: Direction -> NpcOp ()
 gameLoop :: GameState -> IO GameState
 gameLoop game = do
     ch <- getChar
+    
     let (render, game') = runGameOp game $ do
         (playerAct ch)
         npcs <- findAllNpcs
+        --foldM (\gen npc -> runNpcOp npc (npcAct gen)) rnd npcs
         forM_ npcs $ \npc -> do
             runNpcOp npc npcAct
         render <- runLevelOp printWorld
         return render
     putStrLn render
     gameLoop game'
-{-
--}
 
 npcAct :: NpcOp ()
 npcAct = do
-    return ()
+    (Npc (race, id), pos) <- whoAmI
+    if race /= Player
+    then do
+        rndDir <- getRandom random
+        npcWalk rndDir
+        return ()
+    else return ()
 
 
 
