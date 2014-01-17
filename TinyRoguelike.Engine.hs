@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -XRankNTypes #-}
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TupleSections #-}
 
 module TinyRoguelike.Engine
 ( Floor (..)
@@ -32,7 +34,7 @@ import Data.Grid
 import Data.Maybe
 import qualified Data.Vector.Mutable as MV
 import Control.Monad
-import Control.Monad.Operation
+--import Control.Monad.Operation
 import Control.Monad.Identity
 import Control.Applicative
 
@@ -156,7 +158,7 @@ findOnLevel fn = do
 data GameState = GameStateCtor
     { _worldMap :: Grid Tile
     , _inventory :: [Item]
-    , _messages :: [String]
+    , _messages :: [[String]]
     , _rnd :: StdGen
     }
 
@@ -220,6 +222,13 @@ runNpcOp npc op = do
 data Direction = North | East | South | West
     deriving (Eq, Bounded, Enum)
 
+offsetPos :: Direction -> Pos -> Pos
+offsetPos dir (x, y) = case dir of
+                            North -> (x, y-1)
+                            South -> (x, y+1)
+                            East  -> (x-1, y)
+                            West  -> (x+1, y)
+
 instance Random Direction where
     random g =
             case randomR (min, max) g of (r, g') -> (toEnum r, g')
@@ -230,14 +239,26 @@ instance Random Direction where
                         (r, g') -> (toEnum r, g')
 
 npcWalk :: Direction -> NpcOp Bool
-npcWalk d = NpcOpCtor $ \(x, y) -> do
-    let newPos = case d of
-                    North -> (x, y-1)
-                    South -> (x, y+1)
-                    East  -> (x-1, y)
-                    West  -> (x+1, y)
-    ret <- runLevelOp $ moveNpc (x, y) newPos
-    return (ret, if ret then newPos else (x, y))
+npcWalk dir = NpcOpCtor $ \oldPos -> do
+    let newPos = offsetPos dir oldPos
+    msg <- runLevelOp $ do
+        onLevel <- containsM newPos
+        if not onLevel
+            then return $ Just "Npc tried to move off the map"
+            else do
+                wall <- getWall newPos
+                npc <- getNpc newPos
+                if  | isJust wall -> return $ Just "Npc bumped in wall"
+                    | isJust npc  -> return $ Just "Npc bumped in another npc"
+                    | otherwise   -> return Nothing
+    ret <- case msg of
+        Just str -> do
+            logMessage (fromJust msg)
+            return False
+        otherwise -> do
+            runLevelOp $ moveNpc oldPos newPos
+            return True
+    return (ret, if ret then newPos else oldPos)
 
 whoAmI :: NpcOp (Npc, Pos)
 whoAmI = NpcOpCtor $ \pos -> do
@@ -261,28 +282,37 @@ instance RandomProvider NpcOp where
 
 -------------------------------
 class Monad m => MessageLogger m where
+    -- Begin a new message frame.
+    beginMessageFrame :: m ()
+    -- Log a message in the current frame
     logMessage :: String -> m ()
-    getMessages :: m [String]
-    clearMessages :: m ()
+    -- Getting messages
+    getLastFrameMessages :: m [String]
+    getAllMessages :: m [[String]]
+    -- Clear any messages not in the current frame.
+    clearOldMessageFrames :: m ()
 
 instance MessageLogger GameOp where
-    logMessage msg = GameOpCtor $ \game -> do
+    beginMessageFrame = GameOpCtor $ \game -> do
         let msgs = _messages game
-        return ((), game { _messages = msg : msgs })
-    getMessages = GameOpCtor $ \game -> do
+        return ((), game { _messages = [] : msgs })
+    logMessage msg = GameOpCtor $ \game -> do
+        let (frame:frames) = _messages game
+        return ((), game { _messages = (msg:frame):frames })
+    getLastFrameMessages = GameOpCtor $ \game -> do
+        let (frame:frames) = _messages game
+        return (frame, game)
+    getAllMessages = GameOpCtor $ \game -> do
         return (_messages game, game)
-    clearMessages = GameOpCtor $ \game -> do
-        return ((), game { _messages = [] })
+    clearOldMessageFrames = GameOpCtor $ \game -> do
+        let (frame:frames) = _messages game
+        return ((), game { _messages = [frame] })
 
 instance MessageLogger NpcOp where
-    logMessage msg = NpcOpCtor $ \pos -> do
-        logMessage msg
-        return ((), pos)
-    getMessages = NpcOpCtor $ \pos -> do
-        messages <- getMessages
-        return (messages, pos)
-    clearMessages = NpcOpCtor $ \pos -> do
-        clearMessages
-        return ((), pos)
+    beginMessageFrame     = NpcOpCtor $ \pos -> (, pos) <$> beginMessageFrame
+    logMessage msg        = NpcOpCtor $ \pos -> (, pos) <$> logMessage msg
+    getLastFrameMessages  = NpcOpCtor $ \pos -> (, pos) <$> getLastFrameMessages
+    getAllMessages        = NpcOpCtor $ \pos -> (, pos) <$> getAllMessages
+    clearOldMessageFrames = NpcOpCtor $ \pos -> (, pos) <$> clearOldMessageFrames
 
 

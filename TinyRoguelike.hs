@@ -5,9 +5,10 @@ import System.IO
 import System.Random
 import Data.Grid
 import Data.Maybe
+import Data.List
 import qualified Data.Vector.Mutable as MV
 import Control.Monad
-import Control.Monad.Operation
+--import Control.Monad.Operation
 import Control.Monad.Identity
 import Control.Applicative
 import TinyRoguelike.Engine
@@ -32,6 +33,8 @@ populate = do
         fillM $ mkTile (Just Stone) Nothing Nothing Nothing
         setNpc (2, 3) (Just (Npc (Player, 1)))
         setNpc (3, 4) (Just (Npc (Goblin, 100)))
+        setNpc (3, 5) (Just (Npc (Goblin, 101)))
+        setNpc (3, 6) (Just (Npc (Goblin, 102)))
         setWall (2, 4) (Just Brick)
         o <- getWall (2, 4)
         setWall (1, 2) o
@@ -103,19 +106,15 @@ gameLoop game = do
     ch <- getChar
     
     let (render, game') = runGameOp game $ do
-        clearMessages
+        beginMessageFrame
         (playerAct ch)
         npcs <- findAllNpcs
         --foldM (\gen npc -> runNpcOp npc (npcAct gen)) rnd npcs
         forM_ npcs $ \npc -> do
             runNpcOp npc npcAct
         render <- runLevelOp printWorld
-        messages <- getMessages
-        if (null messages)
-            then return render
-            else do
-                lastMsg <- head <$> getMessages
-                return (lastMsg ++ "\n" ++ render)
+        messages <- (concat . intersperse "\n") <$> getLastFrameMessages
+        return (messages ++ "\n" ++ render)
     putStrLn render
     gameLoop game'
 

@@ -8,6 +8,7 @@ module Data.Grid
 , getM
 , setM
 , sizeM
+, containsM
 , fillM
 , foldGridM
 , runGridOp
@@ -104,6 +105,11 @@ setM (x, y) o = GridOpCtor $ \mg -> MV.write (_vectorM mg) (y * (widthM mg) + x)
 
 sizeM :: GridOp o (Int, Int)
 sizeM = GridOpCtor $ \mg -> return . _sizeM $ mg
+
+containsM :: (Int, Int) -> GridOp o Bool
+containsM (x, y) = do
+    (w, h) <- sizeM
+    return $ not (x < 0 || y < 0 || x >= w || y >= h)
 
 fillM :: o -> GridOp o ()
 fillM o = do
