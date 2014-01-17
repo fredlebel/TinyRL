@@ -22,7 +22,8 @@ module TinyRoguelike.Engine
 , npcWalk, whoAmI
 , foldLevelM
 , Direction (..)
-, RandomizedMonad (..)
+, RandomProvider (..)
+, MessageLogger (..)
 ) where
 
 import System.IO
@@ -167,6 +168,11 @@ type GameOp = OperationST GameOpT (GameState, forall s. MV.MVector s Tile)
 
 data GameOp r = GameOpCtor { _gameOpFn :: GameState -> LevelOp (r, GameState) }
 
+instance Functor GameOp where
+    fmap fn m = GameOpCtor $ \game -> do
+        (ret, game') <- _gameOpFn m game
+        return (fn ret, game')
+
 instance Monad GameOp where
     return ret = GameOpCtor $ \game -> return (ret, game)
     m >>= fn = GameOpCtor $ \game -> do
@@ -194,6 +200,11 @@ runLevelOp op = GameOpCtor $ \game -> do
 
 data NpcOp r = NpcOpCtor { _npcOpFn :: Pos -> GameOp (r, Pos) }
 
+instance Functor NpcOp where
+    fmap fn m = NpcOpCtor $ \pos -> do
+        (ret, pos') <- _npcOpFn m pos
+        return (fn ret, pos')
+
 instance Monad NpcOp where
     return ret = NpcOpCtor $ \pos -> return (ret, pos)
     m >>= fn = NpcOpCtor $ \pos -> do
@@ -217,7 +228,7 @@ instance Random Direction where
                 max = fromEnum (maxBound :: Direction)
     randomR (a,b) g = case randomR (fromEnum a, fromEnum b) g of
                         (r, g') -> (toEnum r, g')
-                        
+
 npcWalk :: Direction -> NpcOp Bool
 npcWalk d = NpcOpCtor $ \(x, y) -> do
     let newPos = case d of
@@ -234,19 +245,44 @@ whoAmI = NpcOpCtor $ \pos -> do
     return ((npc, pos), pos)
 
 -- GameOp and NpcOp expose a random generator
-class Monad m => RandomizedMonad m where
+class Monad m => RandomProvider m where
     getRandom :: (StdGen -> (ret, StdGen)) -> m ret
-    
-instance RandomizedMonad GameOp where
+
+instance RandomProvider GameOp where
     getRandom fn = GameOpCtor $ \game -> do
         let (ret, g) = fn (_rnd game)
         return (ret, game { _rnd = g })
 
-instance RandomizedMonad NpcOp where
+instance RandomProvider NpcOp where
     getRandom fn = NpcOpCtor $ \pos -> do
         ret <- getRandom fn
         return (ret, pos)
 
 
+-------------------------------
+class Monad m => MessageLogger m where
+    logMessage :: String -> m ()
+    getMessages :: m [String]
+    clearMessages :: m ()
+
+instance MessageLogger GameOp where
+    logMessage msg = GameOpCtor $ \game -> do
+        let msgs = _messages game
+        return ((), game { _messages = msg : msgs })
+    getMessages = GameOpCtor $ \game -> do
+        return (_messages game, game)
+    clearMessages = GameOpCtor $ \game -> do
+        return ((), game { _messages = [] })
+
+instance MessageLogger NpcOp where
+    logMessage msg = NpcOpCtor $ \pos -> do
+        logMessage msg
+        return ((), pos)
+    getMessages = NpcOpCtor $ \pos -> do
+        messages <- getMessages
+        return (messages, pos)
+    clearMessages = NpcOpCtor $ \pos -> do
+        clearMessages
+        return ((), pos)
 
 

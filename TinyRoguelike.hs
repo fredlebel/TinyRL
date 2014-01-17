@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -XRankNTypes #-}
+{-# LANGUAGE MultiWayIf #-}
 
 import System.IO
 import System.Random
@@ -53,15 +54,6 @@ findPlayer = do
         foldFn acc pos (Tile _ _ _ (Just (Npc (Player, _)))) = Just pos
         foldFn acc _ _ = acc
 
-movePlayer ch = do
-    playerPos <- findPlayer
-    when (isJust playerPos) (void $ doMove ch playerPos)
-    where
-        doMove 'w' (Just (x, y)) = moveNpc (x, y) (x, y-1)
-        doMove 'a' (Just (x, y)) = moveNpc (x, y) (x-1, y)
-        doMove 's' (Just (x, y)) = moveNpc (x, y) (x, y+1)
-        doMove 'd' (Just (x, y)) = moveNpc (x, y) (x+1, y)
-        doMove _ _ = return False
 
 main :: IO ()
 main = do
@@ -88,15 +80,18 @@ foldNpcs fn acc = do
 
 playerAct :: Char -> GameOp ()
 playerAct ch = do
-    Just pos <- runLevelOp findPlayer
-    runLevelOp $ movePlayer ch pos
+    Just (x, y) <- runLevelOp findPlayer
+    let newPos = case ch of
+                    'w' -> (x, y-1)
+                    'a' -> (x-1, y)
+                    's' -> (x, y+1)
+                    'd' -> (x+1, y)
+                    _   -> (x, y)
+    when ((x, y) /= newPos) $ do
+        runLevelOp $ moveNpc (x, y) newPos
+        logMessage "Player moved"
     return ()
-    where
-    movePlayer 'w' (x, y) = moveNpc (x, y) (x, y-1)
-    movePlayer 'a' (x, y) = moveNpc (x, y) (x-1, y)
-    movePlayer 's' (x, y) = moveNpc (x, y) (x, y+1)
-    movePlayer 'd' (x, y) = moveNpc (x, y) (x+1, y)
-    movePlayer _ _ = return False
+    
 
 findAllNpcs :: GameOp [Npc]
 findAllNpcs = foldNpcs foldFn []
@@ -108,13 +103,19 @@ gameLoop game = do
     ch <- getChar
     
     let (render, game') = runGameOp game $ do
+        clearMessages
         (playerAct ch)
         npcs <- findAllNpcs
         --foldM (\gen npc -> runNpcOp npc (npcAct gen)) rnd npcs
         forM_ npcs $ \npc -> do
             runNpcOp npc npcAct
         render <- runLevelOp printWorld
-        return render
+        messages <- getMessages
+        if (null messages)
+            then return render
+            else do
+                lastMsg <- head <$> getMessages
+                return (lastMsg ++ "\n" ++ render)
     putStrLn render
     gameLoop game'
 
