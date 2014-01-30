@@ -51,6 +51,18 @@ printWorld = do
         foldFn acc (0, _) t = acc ++ "|\n|" ++ show t
         foldFn acc _      t = acc ++ show t
 
+printLevel :: GameOp [String]
+printLevel = runLevelOp $ do
+    (w, h) <- sizeM
+    let topBottomRow = "|" ++ (replicate w '-') ++ "|"
+    rows <- foldGridM foldFn []
+    return $ [topBottomRow] ++ rows ++ [topBottomRow]
+    where
+        foldFn :: [String] -> Pos -> Tile -> [String]
+        foldFn [] (0, _) t = ["|" ++ show t]
+        foldFn acc (0, _) t = (init acc) ++ [last acc ++ "|"] ++ ["|" ++ show t]
+        foldFn acc _      t = (init acc) ++ [last acc ++ show t]
+
 findPlayer :: LevelOp (Maybe Pos)
 findPlayer = do
     pos <- foldGridM foldFn Nothing
@@ -64,21 +76,29 @@ main :: IO ()
 main = do
     -- Curses setup
     initCurses
+    cBreak True
+    flushinp
+    --cursSet CursorInvisible
     echo False
     win <- newWin 25 80 0 0
+    keypad win True
+    wclear win
+    wRefresh win
+    refresh
 
     let floorTile = mkTile (Just Stone) Nothing Nothing Nothing
     let game = GameStateCtor (mkGrid (78, 16) floorTile) [] [] (mkStdGen 1234)
 
-    gameLoop win $ execGameOp game populate
+    gameLoop win (execGameOp game populate) 0
 
-    wMove win 1 1
-    wAddStr win "Game ended"
+    wclear win
+    wMove win 0 0
+    wAddStr win "    Game ended    "
     wRefresh win
-    refresh
     getch
     delWin win
     endWin
+    update
     return ()
 
 --------------------------------------------------
@@ -116,30 +136,42 @@ findAllNpcs = foldNpcs foldFn []
     where
         foldFn acc pos npc = npc : acc
 
-gameLoop :: Window -> GameState -> IO GameState
-gameLoop win game = do
-    ch <- getCh
+gameLoop :: Window -> GameState -> Int -> IO GameState
+gameLoop win game frameNum = do
 
-    let ((render, mustQuit), game') = runGameOp game $ do
+    -- Print the level
+    wclear win
+    let ((render, messages), _) = runGameOp game $ do
+        r <- printLevel
+        m <- getLastFrameMessages
+        return (r, m)
+    forM_ (zip [0..] render) $ \(i, line) -> do
+        wMove win i 0
+        wAddStr win line
+    forM_ (zip [0..] messages) $ \(i, line) -> do
+        wMove win ((length render) + i) 0
+        wAddStr win line
+    wMove win 0 0
+    wAddStr win (show frameNum)
+    wRefresh win
+    --refresh
+    --update
+
+    print "Before"
+    ch <- getCh
+    print ch
+
+    let (mustQuit, game') = runGameOp game $ do
         beginMessageFrame
         mustQuit <- not <$> (playerAct ch)
         npcs <- findAllNpcs
-        --foldM (\gen npc -> runNpcOp npc (npcAct gen)) rnd npcs
         forM_ npcs $ \npc -> do
             runNpcOp npc npcAct
-        render <- runLevelOp printWorld
-        messages <- (concat . intersperse "\n") <$> getLastFrameMessages
-        return (messages ++ "\n" ++ render, mustQuit)
-    wclear win
-    forM_ (zip [0..] (lines render)) $ \(i, line) -> do
-        wMove win i 0
-        wAddStr win line
-    wRefresh win
-    refresh
-    putStrLn render
+        return mustQuit
+
     if mustQuit
         then return game'
-        else gameLoop win game'
+        else gameLoop win game' (frameNum + 1)
 
 npcAct :: NpcOp ()
 npcAct = do
@@ -207,7 +239,7 @@ npcAct = do
  18 ################################################################################
  19 ################################################################################
 
- 
+
  DefineRoomShape OddShape_1
  +--------------------------+
  |##########################|
@@ -222,7 +254,7 @@ npcAct = do
  +--------------------------+
 
  DefineLevelLayout Misc_1
- 
+
     (1,1) -> NoFlip Square_8x5
     (8,1) -> NoFlip OddShape_1
     ...

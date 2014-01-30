@@ -301,7 +301,9 @@ instance MessageLogger GameOp where
         return ((), game { _messages = (msg:frame):frames })
     getLastFrameMessages = GameOpCtor $ \game -> do
         let (frame:frames) = _messages game
-        return (frame, game)
+        if null (_messages game)
+            then return ([], game)
+            else return (head . _messages $ game, game)
     getAllMessages = GameOpCtor $ \game -> do
         return (_messages game, game)
     clearOldMessageFrames = GameOpCtor $ \game -> do
