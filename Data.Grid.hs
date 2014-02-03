@@ -7,6 +7,7 @@ module Data.Grid
 , GridOp
 , getM
 , setM
+, setiM
 , sizeM
 , containsM
 , fillM
@@ -102,6 +103,10 @@ getM (x, y) = GridOpCtor $ \mg -> MV.read (_vectorM mg) (y * (widthM mg) + x)
 
 setM :: (Int, Int) -> o -> GridOp o ()
 setM (x, y) o = GridOpCtor $ \mg -> MV.write (_vectorM mg) (y * (widthM mg) + x) o
+
+setiM :: Int -> o -> GridOp o ()
+setiM i o = GridOpCtor $ \mg -> MV.write (_vectorM mg) i o
+
 
 sizeM :: GridOp o (Int, Int)
 sizeM = GridOpCtor $ \mg -> return . _sizeM $ mg

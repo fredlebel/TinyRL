@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -XRankNTypes #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module TinyRoguelike.Engine
 ( Floor (..)
@@ -26,6 +27,7 @@ module TinyRoguelike.Engine
 , Direction (..)
 , RandomProvider (..)
 , MessageLogger (..)
+, loadLevel
 ) where
 
 import System.IO
@@ -37,19 +39,22 @@ import Control.Monad
 --import Control.Monad.Operation
 import Control.Monad.Identity
 import Control.Applicative
+import TinyRoguelike.LevelParser
+import Text.ParserCombinators.Parsec
 
 ------------------------------------------------
 -- Basic data structures for the map
 ------------------------------------------------
 
-data Floor = Stone | Lava deriving (Eq, Ord, Enum)
-data Wall = Brick | Rubble deriving (Eq, Ord, Enum)
-data Item = Sword | Ectoplasm deriving (Eq, Ord, Enum)
-data NpcRace = Player | Rat | Goblin deriving (Eq, Ord, Enum)
+data Floor = Stone | Lava deriving (Eq, Ord, Enum, Read)
+data Wall = Brick | Rubble deriving (Eq, Ord, Enum, Read)
+data Item = Sword | Ectoplasm deriving (Eq, Ord, Enum, Read)
+data NpcRace = Player | Rat | Goblin deriving (Eq, Ord, Enum, Read)
 
 type NpcId = Int
 newtype Npc = Npc (NpcRace, NpcId) deriving Eq
 
+-- Show instances for debugging purposes only
 instance Show Floor where
     show Stone = "."
     show Lava = "~"
@@ -316,5 +321,71 @@ instance MessageLogger NpcOp where
     getLastFrameMessages  = NpcOpCtor $ \pos -> (, pos) <$> getLastFrameMessages
     getAllMessages        = NpcOpCtor $ \pos -> (, pos) <$> getAllMessages
     clearOldMessageFrames = NpcOpCtor $ \pos -> (, pos) <$> clearOldMessageFrames
+
+-- Level parsing and building
+
+
+loadLevel :: Either String Level
+loadLevel =
+    case parseLevel levelData of
+        Left err   -> Left err
+        Right desc -> buildLevel desc
+    where
+        levelData = [str|
+            # = (Stone, _, Brick, _)
+            . = (Stone, _, _, _)
+            @ = (Stone, _, _, Player)
+            g = (Stone, _, _, Goblin)
+            ~ = (Lava, _, _, _)
+            (80x20)
+            ################################################################################
+            #...............#..............................................................#
+            #.....g.........#..............................................................#
+            #...............#....g.........................................................#
+            #...............#..............................................................#
+            #..............................................................................#
+            #################...........~~~~...............................................#
+            #....g..........#.........~~~~~~~~.............................................#
+            #............@..#.........~~~~~~~~.............................................#
+            #...............#.g.........~~~~~~~~...........................................#
+            #...............#.............~~~~~~~~.........................................#
+            ###############.#.................~~~~.........................................#
+            #..................................~~..........................................#
+            #..............................................................................#
+            #...g..........................................................................#
+            #..............................................................................#
+            #..............................................................................#
+            #..............................................................................#
+            #..............................................................................#
+            ################################################################################
+        |]
+
+
+buildLevel :: LevelDescription -> Either String Level
+buildLevel desc = Right $ execGridOp emptyLevel $ do
+    forM (zip [0..] (tiles desc)) $ \(i, ch) -> do
+        -- TODO: Add failure support to GridOp
+        let (Just (floorStr, itemStr, wallStr, avatarStr)) = lookup ch (table desc)
+        let tile = mkTile
+                (toObject floorStr)
+                (toObject itemStr)
+                (toObject wallStr)
+                (toAvatar avatarStr i)
+        setiM i tile
+    where
+        emptyLevel = mkGrid (dimension desc) (mkTile Nothing Nothing Nothing Nothing)
+        toObject Nothing = Nothing
+        toObject (Just str) = Just $ read str
+        toAvatar Nothing _ = Nothing
+        toAvatar (Just str) i = Just . Npc $ (read str, i)
+
+
+
+
+
+
+
+
+
 
 

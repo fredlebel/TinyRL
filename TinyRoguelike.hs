@@ -32,8 +32,8 @@ view ln x = getConst $ ln Const x
 populate :: GameOp ()
 populate = do
     runLevelOp $ do
-        fillM $ mkTile (Just Stone) Nothing Nothing Nothing
-        setNpc (2, 3) (Just (Npc (Player, 1)))
+        --fillM $ mkTile (Just Stone) Nothing Nothing Nothing
+        --setNpc (2, 3) (Just (Npc (Player, 1)))
         setNpc (3, 4) (Just (Npc (Goblin, 100)))
         setNpc (3, 5) (Just (Npc (Goblin, 101)))
         setNpc (3, 6) (Just (Npc (Goblin, 102)))
@@ -42,25 +42,15 @@ populate = do
         setWall (1, 2) o
     return ()
 
-printWorld :: LevelOp String
-printWorld = do
-    (w, h) <- sizeM
-    str <- foldGridM foldFn ('|' : replicate w '-')
-    return $ str ++ ("|\n|" ++ replicate w '-' ++ "|")
-    where
-        foldFn acc (0, _) t = acc ++ "|\n|" ++ show t
-        foldFn acc _      t = acc ++ show t
-
 printLevel :: GameOp [String]
 printLevel = runLevelOp $ do
     (w, h) <- sizeM
-    let topBottomRow = "|" ++ (replicate w '-') ++ "|"
     rows <- foldGridM foldFn []
-    return $ [topBottomRow] ++ rows ++ [topBottomRow]
+    return $ rows
     where
         foldFn :: [String] -> Pos -> Tile -> [String]
-        foldFn [] (0, _) t = ["|" ++ show t]
-        foldFn acc (0, _) t = (init acc) ++ [last acc ++ "|"] ++ ["|" ++ show t]
+        foldFn []  (0, _) t = [show t]
+        foldFn acc (0, _) t = acc ++ [show t]
         foldFn acc _      t = (init acc) ++ [last acc ++ show t]
 
 findPlayer :: LevelOp (Maybe Pos)
@@ -86,15 +76,16 @@ main = do
     wRefresh win
     refresh
 
-    let floorTile = mkTile (Just Stone) Nothing Nothing Nothing
-    let game = GameStateCtor (mkGrid (78, 16) floorTile) [] [] (mkStdGen 1234)
-
-    gameLoop win (execGameOp game populate) 0
-
-    wclear win
-    wMove win 0 0
-    wAddStr win "    Game ended    "
-    wRefresh win
+    let level = loadLevel
+    case level of
+        Left err -> putStrLn err
+        Right level -> do
+            let game = GameStateCtor level [] [] (mkStdGen 1234)
+            gameLoop win (execGameOp game populate) 0
+            wclear win
+            wMove win 0 0
+            wAddStr win "    Game ended    "
+            wRefresh win
     getch
     delWin win
     endWin
