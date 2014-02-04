@@ -1,7 +1,6 @@
 {-# OPTIONS_GHC -XRankNTypes #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE QuasiQuotes #-}
 
 module TinyRoguelike.Engine
 ( Floor (..)
@@ -27,7 +26,7 @@ module TinyRoguelike.Engine
 , Direction (..)
 , RandomProvider (..)
 , MessageLogger (..)
-, loadLevel
+, buildLevel
 ) where
 
 import System.IO
@@ -35,13 +34,13 @@ import System.Random
 import Data.Grid
 import Data.Maybe
 import qualified Data.Vector.Mutable as MV
+import qualified Data.Vector as V
 import Control.Monad
---import Control.Monad.Operation
 import Control.Monad.Identity
 import Control.Applicative
 import TinyRoguelike.LevelParser
 import Text.ParserCombinators.Parsec
-
+import Text.Read
 ------------------------------------------------
 -- Basic data structures for the map
 ------------------------------------------------
@@ -325,40 +324,11 @@ instance MessageLogger NpcOp where
 -- Level parsing and building
 
 
-loadLevel :: Either String Level
-loadLevel =
-    case parseLevel levelData of
+loadLevel :: String -> Either String Level
+loadLevel levelData =
+    case parseLevelDesc levelData of
         Left err   -> Left err
         Right desc -> buildLevel desc
-    where
-        levelData = [str|
-            # = (Stone, _, Brick, _)
-            . = (Stone, _, _, _)
-            @ = (Stone, _, _, Player)
-            g = (Stone, _, _, Goblin)
-            ~ = (Lava, _, _, _)
-            (80x20)
-            ################################################################################
-            #...............#..............................................................#
-            #.....g.........#..............................................................#
-            #...............#....g.........................................................#
-            #...............#..............................................................#
-            #..............................................................................#
-            #################...........~~~~...............................................#
-            #....g..........#.........~~~~~~~~.............................................#
-            #............@..#.........~~~~~~~~.............................................#
-            #...............#.g.........~~~~~~~~...........................................#
-            #...............#.............~~~~~~~~.........................................#
-            ###############.#.................~~~~.........................................#
-            #..................................~~..........................................#
-            #..............................................................................#
-            #...g..........................................................................#
-            #..............................................................................#
-            #..............................................................................#
-            #..............................................................................#
-            #..............................................................................#
-            ################################################################################
-        |]
 
 
 buildLevel :: LevelDescription -> Either String Level
@@ -375,12 +345,9 @@ buildLevel desc = Right $ execGridOp emptyLevel $ do
     where
         emptyLevel = mkGrid (dimension desc) (mkTile Nothing Nothing Nothing Nothing)
         toObject Nothing = Nothing
-        toObject (Just str) = Just $ read str
+        toObject (Just str) = readMaybe str
         toAvatar Nothing _ = Nothing
-        toAvatar (Just str) i = Just . Npc $ (read str, i)
-
-
-
+        toAvatar (Just str) i = Npc . (, i) <$> readMaybe str
 
 
 

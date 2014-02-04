@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -XRankNTypes #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 module Data.Grid
 ( Grid
@@ -24,19 +25,14 @@ import qualified Data.Vector.Generic as G
 import Control.Monad.Identity
 import Control.Monad.ST
 import Control.Applicative
-
-{-
-class Grid g where
-    size :: g o -> (Int, Int)
-    get :: (Int, Int) -> g o -> o
-    set :: (Int, Int) -> o -> g o -> g o
-    foldl :: (a -> o -> a) -> a -> g o -> a
--}
+import Data.Data
+import Data.Typeable
 
 data Grid o = GridCtor {
         _size :: (Int, Int),
         _vector :: V.Vector o
-    }
+    } deriving (Typeable, Data)
+
 
 data MGrid s o = MGridCtor {
         _sizeM :: (Int, Int),

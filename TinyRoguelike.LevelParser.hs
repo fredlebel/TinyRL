@@ -3,8 +3,10 @@
 
 module TinyRoguelike.LevelParser
 ( str
-, parseLevel
+, parseLevelDesc
 , LevelDescription (..)
+, parse_level_desc
+, level
 )
 where
 import Language.Haskell.TH
@@ -21,6 +23,8 @@ import Text.Parsec
 import Text.Parsec.String
 import System.Random
 import Control.Monad
+import Data.Data
+import Data.Typeable
 
 str = QuasiQuoter { quoteExp = stringE }
 
@@ -63,11 +67,11 @@ data LevelDescription = LevelDesc
     { table :: [(Char, TileDescription)]
     , dimension :: (Int, Int)
     , tiles :: [Char]
-    }
+    } deriving (Typeable, Data)
 
-parseLevel :: String -> Either String LevelDescription
-parseLevel levelData =
-    case runParser parse_level () "" levelData of
+parseLevelDesc :: String -> Either String LevelDescription
+parseLevelDesc levelData =
+    case runParser parse_level_desc () "" levelData of
       Left err  -> Left $ show err
       Right e   -> Right e
     {-where
@@ -82,18 +86,21 @@ parseLevel levelData =
                         (take (80*20) $ randoms (mkStdGen 73837))
             }-}
 
+whitespaces = many . oneOf $ " \t"
+
+newlines = many . oneOf $ "\r\n"
+
 parse_int :: Parser Int
 parse_int = do
     str <- many digit
     return $ read str
 
-
 parse_tile_symbol :: Parser Char
-parse_tile_symbol = noneOf " \t"
+parse_tile_symbol = noneOf " \t" <?> "tile symbol"
 
 parse_object_name :: Parser (Maybe String)
 parse_object_name = do
-    str <- many (noneOf " \t,)")
+    str <- many1 (noneOf " \t\r\n,)") <?> "object name"
     if str == "_"
         then return $ Nothing
         else return $ Just str
@@ -101,17 +108,18 @@ parse_object_name = do
 
 parse_tile_description :: Parser (Char, TileDescription)
 parse_tile_description = do
-    spaces
+    whitespaces
     ch <- parse_tile_symbol
-    spaces >> char '=' >> spaces >> char '(' >> spaces
+    whitespaces >> char '=' >> whitespaces >> char '(' >> whitespaces
     mFloor <- parse_object_name
-    spaces >> char ',' >> spaces
+    whitespaces >> char ',' >> whitespaces
     mItem <- parse_object_name
-    spaces >> char ',' >> spaces
+    whitespaces >> char ',' >> whitespaces
     mWall <- parse_object_name
-    spaces >> char ',' >> spaces
+    whitespaces >> char ',' >> whitespaces
     mAvatar <- parse_object_name
-    spaces >> char ')' >> spaces
+    whitespaces >> char ')' >> whitespaces
+    newlines
     return (ch, (mFloor, mItem, mWall, mAvatar))
 
 parse_tile_lookup :: Parser [(Char, TileDescription)]
@@ -121,26 +129,64 @@ parse_tile_lookup = do
 
 parse_level_dimension :: Parser (Int, Int)
 parse_level_dimension = do
+    whitespaces
     char '('
+    whitespaces
     w <- parse_int
+    whitespaces
     char 'x'
+    whitespaces
     h <- parse_int
+    whitespaces
     char ')'
+    newlines
     return (w, h)
 
-parse_tile_list :: Parser [Char]
-parse_tile_list = do
-    list <- manyTill (spaces >> parse_tile_symbol) (lookAhead . try $ (spaces >> eof))
+parse_tile_list :: Int -> Parser [Char]
+parse_tile_list n = do
+    --list <- manyTill (spaces >> parse_tile_symbol) (lookAhead . try $ (spaces >> eof))
+    list <- count n (spaces >> parse_tile_symbol)
     return list
 
-parse_level :: Parser LevelDescription
-parse_level = do
-    many $ newline
+parse_level_desc :: Parser LevelDescription
+parse_level_desc = do
+    --many $ newline
+    spaces
     tileLookup <- parse_tile_lookup
-    spaces
-    dim <- parse_level_dimension
-    spaces
-    tiles <- parse_tile_list
+    dim@(w,h) <- parse_level_dimension <?> "level dimensions"
+    tiles <- parse_tile_list (w*h)
+    spaces >> eof
+    --when ((w*h) /= length tiles) $ do
+    --    unexpected "Not enough tiles."
     return $ LevelDesc tileLookup dim tiles
 
+-- The Quasi Quoter
+
+parseLevelForQuoter :: Monad m => (String, Int, Int) -> String -> m LevelDescription
+parseLevelForQuoter (file, line, col) str =
+    case runParser p () "" str of
+      Left err  -> fail $ show err
+      Right e   -> return e
+    where
+        p = do
+            pos <- getPosition
+            setPosition $
+                (flip setSourceName) file $
+                (flip setSourceLine) line $
+                (flip setSourceColumn) col $
+                pos
+            parse_level_desc
+
+quoteLevelE str = do
+    loc <- location
+    let pos = (loc_filename loc,
+                fst (loc_start loc),
+                snd (loc_start loc))
+
+    desc <- parseLevelForQuoter pos str
+    dataToExpQ (const Nothing) desc
+
+
+level :: QuasiQuoter
+level = QuasiQuoter { quoteExp = quoteLevelE }
 
