@@ -27,20 +27,30 @@ module TinyRoguelike.Engine
 , RandomProvider (..)
 , MessageLogger (..)
 , buildLevel
+, level
 ) where
 
 import System.IO
 import System.Random
 import Data.Grid
 import Data.Maybe
+import Data.List
+import Data.Either.Unwrap
 import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector as V
 import Control.Monad
+import Control.Monad.Instances
 import Control.Monad.Identity
 import Control.Applicative
 import TinyRoguelike.LevelParser
 import Text.ParserCombinators.Parsec
 import Text.Read
+
+import Language.Haskell.TH
+import Language.Haskell.TH.Syntax
+import Language.Haskell.TH.Quote
+import Language.Haskell.Meta.Parse
+
 ------------------------------------------------
 -- Basic data structures for the map
 ------------------------------------------------
@@ -188,7 +198,8 @@ instance Monad GameOp where
 runGameOp :: GameState -> GameOp r -> (r, GameState)
 runGameOp game op = (ret, game'')
     where
-        ((ret, game'), newGrid) = runGridOp (_worldMap game) (_gameOpFn op game)
+        -- TODO: Error propagation.
+        (Right (ret, game'), newGrid) = runGridOp (_worldMap game) (_gameOpFn op game)
         game'' = game' { _worldMap = newGrid }
 
 evalGameOp game op = fst $ runGameOp game op
@@ -332,24 +343,45 @@ loadLevel levelData =
 
 
 buildLevel :: LevelDescription -> Either String Level
-buildLevel desc = Right $ execGridOp emptyLevel $ do
-    forM (zip [0..] (tiles desc)) $ \(i, ch) -> do
-        -- TODO: Add failure support to GridOp
-        let (Just (floorStr, itemStr, wallStr, avatarStr)) = lookup ch (table desc)
-        let tile = mkTile
-                (toObject floorStr)
-                (toObject itemStr)
-                (toObject wallStr)
-                (toAvatar avatarStr i)
-        setiM i tile
+buildLevel desc = case runGridOp emptyLevel buildOp of
+    (Left err, level) -> Left err
+    (Right _, level)  -> Right level
     where
         emptyLevel = mkGrid (dimension desc) (mkTile Nothing Nothing Nothing Nothing)
-        toObject Nothing = Nothing
-        toObject (Just str) = readMaybe str
-        toAvatar Nothing _ = Nothing
-        toAvatar (Just str) i = Npc . (, i) <$> readMaybe str
+        toObject Nothing _ = Right Nothing
+        toObject (Just str) ty = maybe (Left ("Unrecognized " ++ ty ++ " : " ++ str)) (Right . Just) (readMaybe str)
+        toAvatar Nothing _ = Right Nothing
+        toAvatar (Just str) i = maybe (Left ("Unrecognized avatar : " ++ str)) (Right . Just . Npc . (, i)) (readMaybe str)
+        buildOp = do
+            tiles <- forM (zip [0..] (tiles desc)) $ \(i, ch) -> do
+                -- TODO: Add failure support to GridOp
+                let (Just (floorStr, itemStr, wallStr, avatarStr)) = lookup ch (table desc)
+                let tileE = do
+                    floor  <- toObject floorStr "floor"
+                    item   <- toObject itemStr "item"
+                    wall   <- toObject wallStr "wall"
+                    avatar <- toAvatar avatarStr i
+                    return $ mkTile floor item wall avatar
+                case tileE of
+                    Left err -> return tileE
+                    Right tile -> setiM i tile >> return tileE
+            let errors = map fromLeft . filter isLeft $ tiles
+            when (not (null errors)) $ do
+                fail $ (concat . intersperse " - " $ errors)
 
 
+
+
+-- The Quasi Quoter
+
+quoteLevelE str = case parseLevelDesc str of
+    Left err -> fail err
+    Right desc -> case buildLevel desc of
+        Left err -> fail err
+        Right _ -> dataToExpQ (const Nothing) desc
+
+level :: QuasiQuoter
+level = QuasiQuoter { quoteExp = quoteLevelE }
 
 
 

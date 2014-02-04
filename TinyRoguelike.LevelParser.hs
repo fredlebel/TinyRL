@@ -6,7 +6,7 @@ module TinyRoguelike.LevelParser
 , parseLevelDesc
 , LevelDescription (..)
 , parse_level_desc
-, level
+, levelDesc
 )
 where
 import Language.Haskell.TH
@@ -187,6 +187,6 @@ quoteLevelE str = do
     dataToExpQ (const Nothing) desc
 
 
-level :: QuasiQuoter
-level = QuasiQuoter { quoteExp = quoteLevelE }
+levelDesc :: QuasiQuoter
+levelDesc = QuasiQuoter { quoteExp = quoteLevelE }
 

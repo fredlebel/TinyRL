@@ -38,7 +38,7 @@ data MGrid s o = MGridCtor {
         _sizeM :: (Int, Int),
         _vectorM :: MV.MVector s o
     }
-    
+
 instance (Show o) => Show (Grid o) where
     show g = show (_size g) ++
              "\n" ++
@@ -81,31 +81,36 @@ toIndex g (x, y) = y * (width g) + x
 over_all :: (o -> o) -> Grid o -> Grid o
 over_all fn g = g { _vector = V.map fn (_vector g) }
 
-data GridOp o r = GridOpCtor { gridOpFn :: forall s. MGrid s o -> ST s r }
+data GridOp o r = GridOpCtor { gridOpFn :: forall s. MGrid s o -> ST s (Either String r) }
 
+{-
 instance Functor (GridOp o) where
     fmap f m = GridOpCtor $ \mg -> f <$> gridOpFn m mg
+-}
 
 instance Monad (GridOp o) where
-    return r = GridOpCtor $ \mg -> return r
+    fail str = GridOpCtor $ \mg -> return (Left str)
+    return r = GridOpCtor $ \mg -> return (Right r)
     m >>= fn = GridOpCtor $ \mg -> do
-        r <- gridOpFn m mg
-        gridOpFn (fn r) mg
+        result <- gridOpFn m mg
+        case result of
+            Left err -> return (Left err)
+            Right r -> gridOpFn (fn r) mg
 
 
 getM :: (Int, Int) -> GridOp o o
-getM (x, y) = GridOpCtor $ \mg -> MV.read (_vectorM mg) (y * (widthM mg) + x)
+getM (x, y) = GridOpCtor $ \mg -> Right <$> MV.read (_vectorM mg) (y * (widthM mg) + x)
 
 
 setM :: (Int, Int) -> o -> GridOp o ()
-setM (x, y) o = GridOpCtor $ \mg -> MV.write (_vectorM mg) (y * (widthM mg) + x) o
+setM (x, y) o = GridOpCtor $ \mg -> Right <$> MV.write (_vectorM mg) (y * (widthM mg) + x) o
 
 setiM :: Int -> o -> GridOp o ()
-setiM i o = GridOpCtor $ \mg -> MV.write (_vectorM mg) i o
+setiM i o = GridOpCtor $ \mg -> Right <$> MV.write (_vectorM mg) i o
 
 
 sizeM :: GridOp o (Int, Int)
-sizeM = GridOpCtor $ \mg -> return . _sizeM $ mg
+sizeM = GridOpCtor $ \mg -> return . Right . _sizeM $ mg
 
 containsM :: (Int, Int) -> GridOp o Bool
 containsM (x, y) = do
@@ -122,11 +127,11 @@ fillM o = do
 foldGridM :: (a -> (Int, Int) -> o -> a) -> a -> GridOp o a
 foldGridM fn a = GridOpCtor $ \mg -> do
     v <- V.freeze (_vectorM mg)
-    return $ V.ifoldl (foldFn $ _sizeM mg) a v
+    return . Right $ V.ifoldl (foldFn $ _sizeM mg) a v
     where
         foldFn (w, h) acc i o = fn acc (i `mod` w, i `div` w) o
 
-runGridOp :: Grid o -> GridOp o r -> (r, Grid o)
+runGridOp :: Grid o -> GridOp o r -> (Either String r, Grid o)
 runGridOp g op = runST $ do
     mv <- V.thaw (_vector g)
     r <- gridOpFn op (MGridCtor (_size g) mv)
