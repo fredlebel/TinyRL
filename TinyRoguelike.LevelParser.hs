@@ -7,28 +7,22 @@ module TinyRoguelike.LevelParser
 )
 where
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax
 import Language.Haskell.TH.Quote
-import Language.Haskell.Meta.Parse
 
 import Data.Generics
-import Data.Char
-import Data.List
-import Data.Maybe
-import Data.Grid
 import Text.Parsec
 import Text.Parsec.String
-import System.Random
 import Control.Monad
-import Data.Data
-import Data.Typeable
+
 
 type TileDescription = (Maybe String, Maybe String, Maybe String, Maybe String)
+
+type TileChar = Char
 
 data LevelDescription = LevelDesc
     { table :: [(Char, TileDescription)]
     , dimension :: (Int, Int)
-    , tiles :: [Char]
+    , tiles :: [TileChar]
     } deriving (Typeable, Data)
 
 parseLevelDescription :: String -> Either String LevelDescription
@@ -37,9 +31,13 @@ parseLevelDescription levelData =
       Left err  -> Left $ show err
       Right e   -> Right e
 
-whitespaces = many . oneOf $ " \t"
-
-newlines = many . oneOf $ "\r\n"
+-- Parsing helpers
+whitespaces :: Parser ()
+whitespaces = void $ many . oneOf $ " \t"
+paddedChar :: Char -> Parser ()
+paddedChar ch = void $ whitespaces >> char ch >> whitespaces
+newlines :: Parser ()
+newlines = void . many . oneOf $ "\r\n"
 
 parseInt :: Parser Int
 parseInt = do
@@ -59,15 +57,15 @@ parseTileDescription :: Parser (Char, TileDescription)
 parseTileDescription = do
     whitespaces
     ch <- parseTileSymbol
-    whitespaces >> char '=' >> whitespaces >> char '(' >> whitespaces
+    paddedChar '=' >> paddedChar '('
     mFloor <- parseObjectName
-    whitespaces >> char ',' >> whitespaces
+    paddedChar ','
     mItem <- parseObjectName
-    whitespaces >> char ',' >> whitespaces
+    paddedChar ','
     mWall <- parseObjectName
-    whitespaces >> char ',' >> whitespaces
+    paddedChar ','
     mAvatar <- parseObjectName
-    whitespaces >> char ')' >> whitespaces
+    paddedChar ')'
     newlines
     return (ch, (mFloor, mItem, mWall, mAvatar))
 
@@ -76,20 +74,14 @@ parseTileLookup = manyTill parseTileDescription (lookAhead $ try parseLevelDimen
 
 parseLevelDimension :: Parser (Int, Int)
 parseLevelDimension = do
-    whitespaces
-    char '('
-    whitespaces
+    paddedChar '('
     w <- parseInt
-    whitespaces
-    char 'x'
-    whitespaces
+    paddedChar 'x'
     h <- parseInt
-    whitespaces
-    char ')'
-    newlines
+    paddedChar ')'
     return (w, h)
 
-parseTileList :: Int -> Parser [Char]
+parseTileList :: Int -> Parser [TileChar]
 parseTileList n = count n (spaces >> parseTileSymbol)
 
 parseLevelDesc :: Parser LevelDescription
@@ -98,11 +90,11 @@ parseLevelDesc = do
     spaces
     tileLookup <- parseTileLookup
     dim@(w,h) <- parseLevelDimension <?> "level dimensions"
-    tiles <- parseTileList (w*h)
+    tilesChars <- parseTileList (w*h)
     spaces >> eof
     --when ((w*h) /= length tiles) $ do
     --    unexpected "Not enough tiles."
-    return $ LevelDesc tileLookup dim tiles
+    return $ LevelDesc tileLookup dim tilesChars
 
 -- The Quasi Quoter
 
@@ -120,6 +112,7 @@ parseLevelForQuoter (file, line, col) str =
                 setSourceColumn pos col
             parseLevelDesc
 
+quoteLevelE :: String -> Q Exp
 quoteLevelE str = do
     loc <- location
     let pos = (loc_filename loc,
@@ -131,5 +124,10 @@ quoteLevelE str = do
 
 
 levelDesc :: QuasiQuoter
-levelDesc = QuasiQuoter { quoteExp = quoteLevelE }
+levelDesc = QuasiQuoter
+    { quoteExp = quoteLevelE
+    , quotePat = fail
+    , quoteType = fail
+    , quoteDec = fail
+    }
 

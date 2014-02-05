@@ -1,10 +1,11 @@
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 
 module Data.Grid
 ( Grid
 , mkGrid
 , GridOp
+, width, height, widthM, heightM
+, toIndex
 , getM
 , setM
 , setiM
@@ -20,17 +21,15 @@ module Data.Grid
 
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
-import qualified Data.Vector.Generic as G
 import Control.Monad.Identity
 import Control.Monad.ST
 import Control.Applicative
-import Data.Data
-import Data.Typeable
+
 
 data Grid o = GridCtor {
         _size :: (Int, Int),
         _vector :: V.Vector o
-    } deriving (Typeable, Data)
+    }
 
 
 data MGrid s o = MGridCtor {
@@ -44,6 +43,7 @@ instance (Show o) => Show (Grid o) where
              V.ifoldl foldFn "" (_vector g)
         where foldFn acc i o = acc ++ (if i `mod` width g == 0 then "\n" else "") ++ show o
 
+mkGrid :: forall o. (Int, Int) -> o -> Grid o
 mkGrid (w, h) o = GridCtor
     {
         _size = (w, h),
@@ -66,19 +66,25 @@ view ln x = getConst $ ln Const x
 --at :: (Int, Int) -> Lens (Grid o) o
 --at pos fn g = (_set g pos) <$> (fn $ _get g pos)
 
-width g = w where (w, h) = _size g
-height g = h where (w, h) = _size g
-widthM g = w where (w, h) = _sizeM g
-heightM g = h where (w, h) = _sizeM g
+width :: forall o. Grid o -> Int
+width   g = w where (w, _) = _size g
+
+height :: forall o. Grid o -> Int
+height  g = h where (_, h) = _size g
+
+widthM :: forall s o. MGrid s o -> Int
+widthM  g = w where (w, _) = _sizeM g
+
+heightM :: forall s o. MGrid s o -> Int
+heightM g = h where (_, h) = _sizeM g
+
+toIndex :: forall o. Grid o -> (Int, Int) -> Int
 toIndex g (x, y) = y * width g + x
 
 --_get g pos    = (_vector g) V.! (toIndex g pos)
 --_set g pos !o = g { _vector = (_vector g) V.// [(index, o)] }
 --    where
 --        index = toIndex g pos
-
-overAll :: (o -> o) -> Grid o -> Grid o
-overAll fn g = g { _vector = V.map fn (_vector g) }
 
 data GridOp o r = GridOpCtor { gridOpFn :: forall s. MGrid s o -> ST s (Either String r) }
 
@@ -88,8 +94,8 @@ instance Functor (GridOp o) where
 -}
 
 instance Monad (GridOp o) where
-    fail str = GridOpCtor $ \mg -> return (Left str)
-    return r = GridOpCtor $ \mg -> return (Right r)
+    fail str = GridOpCtor $ \_ -> return (Left str)
+    return r = GridOpCtor $ \_ -> return (Right r)
     m >>= fn = GridOpCtor $ \mg -> do
         result <- gridOpFn m mg
         case result of
@@ -127,7 +133,7 @@ foldGridM fn a = GridOpCtor $ \mg -> do
     v <- V.freeze (_vectorM mg)
     return . Right $ V.ifoldl (foldFn $ _sizeM mg) a v
     where
-        foldFn (w, h) acc i = fn acc (i `mod` w, i `div` w)
+        foldFn (w, _) acc i = fn acc (i `mod` w, i `div` w)
 
 runGridOp :: Grid o -> GridOp o r -> (Either String r, Grid o)
 runGridOp g op = runST $ do
@@ -136,7 +142,10 @@ runGridOp g op = runST $ do
     v <- V.freeze mv
     return (r, g { _vector = v })
 
+evalGridOp :: forall o r. Grid o -> GridOp o r -> Either String r
 evalGridOp g op = fst (runGridOp g op)
+
+execGridOp :: forall o r. Grid o -> GridOp o r -> Grid o
 execGridOp g op = snd (runGridOp g op)
 
 

@@ -8,7 +8,7 @@ module TinyRoguelike.Engine
 , Item (..)
 , NpcRace (..)
 , NpcId
-, Npc (Npc)
+, Npc (Npc), npcRace, npcId
 , Tile (..)
 , mkTile
 , findNpc, findPlayer
@@ -17,7 +17,7 @@ module TinyRoguelike.Engine
 , getFloor, getItem, getWall, getNpc
 , setFloor, setItem, setWall, setNpc
 , moveFloor, moveItem, moveWall, moveNpc
-, Pos
+, Pos, offsetPos
 , Direction (..)
 , RandomProvider (..)
 , MessageLogger (..)
@@ -25,26 +25,18 @@ module TinyRoguelike.Engine
 , level
 ) where
 
-import System.IO
+import Prelude hiding (floor, min, max)
 import System.Random
 import Data.Grid
 import Data.Maybe
 import Data.List
 import Data.Either.Unwrap
-import qualified Data.Vector.Mutable as MV
-import qualified Data.Vector as V
 import Control.Monad
-import Control.Monad.Instances
-import Control.Monad.Identity
-import Control.Applicative
 import TinyRoguelike.LevelParser
-import Text.ParserCombinators.Parsec
 import Text.Read
 
-import Language.Haskell.TH
-import Language.Haskell.TH.Syntax
+import Language.Haskell.TH hiding (match)
 import Language.Haskell.TH.Quote
-import Language.Haskell.Meta.Parse
 
 ------------------------------------------------
 -- Basic data structures for the map
@@ -58,8 +50,8 @@ data NpcRace = Player | Rat | Goblin deriving (Eq, Ord, Enum, Read)
 type NpcId = Int
 newtype Npc = Npc (NpcRace, NpcId) deriving Eq
 
-npcRace (Npc (race, id)) = race
-npcId (Npc (race, id)) = id
+npcRace (Npc (race, _)) = race
+npcId (Npc (_, theId)) = theId
 
 -- Show instances for debugging purposes only
 instance Show Floor where
@@ -146,8 +138,8 @@ moveObject getter setter p1 p2 = do
     o2 <- getter p2
     if isJust o1 && isNothing o2
         then do
-            setter p1 Nothing
-            setter p2 o1
+            _ <- setter p1 Nothing
+            _ <- setter p2 o1
             return True
         else return False
 
@@ -212,18 +204,18 @@ class Monad m => MessageLogger m where
 
 -- Level parsing and building
 
-
+{-
 loadLevel :: String -> Either String Level
 loadLevel levelData =
     case parseLevelDescription levelData of
         Left err   -> Left err
         Right desc -> buildLevel desc
-
+-}
 
 buildLevel :: LevelDescription -> Either String Level
 buildLevel desc = case runGridOp emptyLevel buildOp of
-    (Left err, level) -> Left err
-    (Right _, level)  -> Right level
+    (Left err, _)   -> Left err
+    (Right _, lvl)  -> Right lvl
     where
         emptyLevel = mkGrid (dimension desc) (mkTile Nothing Nothing Nothing Nothing)
         toObject Nothing _ = Right Nothing
@@ -231,7 +223,7 @@ buildLevel desc = case runGridOp emptyLevel buildOp of
         toAvatar Nothing _ = Right Nothing
         toAvatar (Just str) i = maybe (Left ("Unrecognized avatar : " ++ str)) (Right . Just . Npc . (, i)) (readMaybe str)
         buildOp = do
-            tiles <- forM (zip [0..] (tiles desc)) $ \(i, ch) -> do
+            allTiles <- forM (zip [0..] (tiles desc)) $ \(i, ch) -> do
                 -- TODO: Add failure support to GridOp
                 let (Just (floorStr, itemStr, wallStr, avatarStr)) = lookup ch (table desc)
                 let tileE = do
@@ -241,9 +233,9 @@ buildLevel desc = case runGridOp emptyLevel buildOp of
                     avatar <- toAvatar avatarStr i
                     return $ mkTile floor item wall avatar
                 case tileE of
-                    Left err -> return tileE
+                    Left _ -> return tileE
                     Right tile -> setiM i tile >> return tileE
-            let errors = map fromLeft . filter isLeft $ tiles
+            let errors = map fromLeft . filter isLeft $ allTiles
             unless (null errors) $
                 fail (intercalate " - " errors)
 
@@ -251,7 +243,7 @@ buildLevel desc = case runGridOp emptyLevel buildOp of
 
 
 -- The Quasi Quoter
-
+quoteLevelE :: String -> Q Exp
 quoteLevelE str = case parseLevelDescription str of
     Left err -> fail err
     Right desc -> case buildLevel desc of
@@ -259,8 +251,12 @@ quoteLevelE str = case parseLevelDescription str of
         Right _ -> dataToExpQ (const Nothing) desc
 
 level :: QuasiQuoter
-level = QuasiQuoter { quoteExp = quoteLevelE }
-
+level = QuasiQuoter
+    { quoteExp = quoteLevelE
+    , quotePat = fail
+    , quoteType = fail
+    , quoteDec = fail
+    }
 
 
 

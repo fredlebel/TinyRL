@@ -10,26 +10,9 @@ module TinyRoguelike.Engine.GameOp
 , foldLevelM, foldNpcs
 ) where
 
-import System.IO
 import System.Random
 import Data.Grid
-import Data.Maybe
-import Data.List
-import Data.Either.Unwrap
-import qualified Data.Vector.Mutable as MV
-import qualified Data.Vector as V
-import Control.Monad
-import Control.Monad.Instances
-import Control.Monad.Identity
-import Control.Applicative
 import TinyRoguelike.Engine
-import Text.ParserCombinators.Parsec
-import Text.Read
-
-import Language.Haskell.TH
-import Language.Haskell.TH.Syntax
-import Language.Haskell.TH.Quote
-import Language.Haskell.Meta.Parse
 
 
 data GameState = GameStateCtor
@@ -92,15 +75,14 @@ instance MessageLogger GameOp where
     logMessage msg = GameOpCtor $ \game -> do
         let (frame:frames) = _messages game
         return ((), game { _messages = (msg:frame):frames })
-    getLastFrameMessages = GameOpCtor $ \game -> do
-        let (frame:frames) = _messages game
-        return $ if null (_messages game)
+    getLastFrameMessages = GameOpCtor $ \game -> return $
+        if null (_messages game)
             then ([], game)
             else (head . _messages $ game, game)
     getAllMessages = GameOpCtor $ \game ->
         return (_messages game, game)
     clearOldMessageFrames = GameOpCtor $ \game -> do
-        let (frame:frames) = _messages game
+        let frame = head . _messages $ game
         return ((), game { _messages = [frame] })
 
 

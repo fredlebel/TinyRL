@@ -31,15 +31,8 @@ instance Monad NpcOp where
 runNpcOp :: Npc -> NpcOp r -> GameOp r
 runNpcOp npc op = do
     Just pos <- runLevelOp $ findNpc (==npc)
-    (r, pos') <- _npcOpFn op pos
+    (r, _) <- _npcOpFn op pos
     return r
-
-offsetPos :: Direction -> Pos -> Pos
-offsetPos dir (x, y) = case dir of
-                            North -> (x, y-1)
-                            South -> (x, y+1)
-                            East  -> (x-1, y)
-                            West  -> (x+1, y)
 
 npcWalk :: Direction -> NpcOp Bool
 npcWalk dir = NpcOpCtor $ \oldPos -> do
@@ -56,10 +49,10 @@ npcWalk dir = NpcOpCtor $ \oldPos -> do
                     | otherwise   -> return Nothing
     ret <- case msg of
         Just str -> do
-            logMessage (fromJust msg)
+            logMessage (str)
             return False
-        otherwise -> do
-            runLevelOp $ moveNpc oldPos newPos
+        _ -> do
+            _ <- runLevelOp $ moveNpc oldPos newPos
             return True
     return (ret, if ret then newPos else oldPos)
 

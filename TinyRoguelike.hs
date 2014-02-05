@@ -2,26 +2,19 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-import System.IO
 import System.Random
 import Data.Grid
-import Data.Maybe
-import Data.List
-import qualified Data.Vector.Mutable as MV
 import Control.Monad
---import Control.Monad.Operation
-import Control.Monad.Identity
 import Control.Applicative
 import TinyRoguelike.Engine
 import TinyRoguelike.Engine.GameOp
 import TinyRoguelike.Engine.NpcOp
-import TinyRoguelike.LevelParser
 import UI.HSCurses.Curses
-import UI.HSCurses.CursesHelper
 
 
 ------------------------------------------
 -- Basic lens
+{-
 type Lens x a = Functor f => (a -> f a) -> (x -> f x)
 set :: Lens x a -> a -> x -> x
 set ln a x = runIdentity $ ln (const . Identity $ a) x
@@ -31,6 +24,7 @@ over ln fn x = runIdentity $ ln (Identity . fn) x
 
 view :: Lens x a -> x -> a
 view ln x = getConst $ ln Const x
+-}
 ------------------------------------------
 
 populate :: GameOp ()
@@ -45,10 +39,7 @@ populate = runLevelOp $ do
         setWall (1, 2) o
 
 printLevel :: GameOp [String]
-printLevel = runLevelOp $ do
-    (w, h) <- sizeM
-    rows <- foldGridM foldFn []
-    return rows
+printLevel = runLevelOp $ foldGridM foldFn []
     where
         foldFn :: [String] -> Pos -> Tile -> [String]
         foldFn []  (0, _) t = [show t]
@@ -60,7 +51,7 @@ main = do
     -- Curses setup
     initCurses
     cBreak True
-    flushinp
+    _ <- flushinp
     --cursSet CursorInvisible
     echo False
     win <- newWin 25 80 0 0
@@ -98,12 +89,12 @@ main = do
         ################################################################################|]
 
     let game = mkGame firstLevel [] [] (mkStdGen 1234)
-    gameLoop win (execGameOp game populate) 0
+    _ <- gameLoop win (execGameOp game populate) 0
     wclear win
     wMove win 0 0
     wAddStr win "    Game ended    "
     wRefresh win
-    getch
+    _ <- getch
     delWin win
     endWin
     update
@@ -124,7 +115,7 @@ playerAct ch = do
                     KeyChar 'd' -> (x+1, y)
                     _   -> (x, y)
     when ((x, y) /= newPos) $ do
-        runLevelOp $ moveNpc (x, y) newPos
+        _ <- runLevelOp $ moveNpc (x, y) newPos
         logMessage "Player moved"
     return $ ch /= KeyChar 'q'
 
@@ -132,7 +123,7 @@ playerAct ch = do
 findAllNpcs :: GameOp [Npc]
 findAllNpcs = foldNpcs foldFn []
     where
-        foldFn acc pos npc = npc : acc
+        foldFn acc _ npc = npc : acc
 
 gameLoop :: Window -> GameState -> Int -> IO GameState
 gameLoop win game frameNum = do
@@ -159,10 +150,10 @@ gameLoop win game frameNum = do
 
     let (mustQuit, game') = runGameOp game $ do
         beginMessageFrame
-        mustQuit <- not <$> playerAct ch
+        playerQuit <- not <$> playerAct ch
         npcs <- findAllNpcs
         forM_ npcs $ \npc -> runNpcOp npc npcAct
-        return mustQuit
+        return playerQuit
 
     if mustQuit
         then return game'
@@ -170,10 +161,10 @@ gameLoop win game frameNum = do
 
 npcAct :: NpcOp ()
 npcAct = do
-    (Npc (race, id), pos) <- whoAmI
+    (Npc (race, _), _) <- whoAmI
     when (race /= Player) $ do
         rndDir <- getRandom random
-        npcWalk rndDir
+        _ <- npcWalk rndDir
         return ()
 
 
