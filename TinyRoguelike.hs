@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -XRankNTypes #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE QuasiQuotes #-}
 
@@ -13,6 +13,7 @@ import Control.Monad
 import Control.Monad.Identity
 import Control.Applicative
 import TinyRoguelike.Engine
+import TinyRoguelike.Engine.NpcOp
 import TinyRoguelike.LevelParser
 import UI.HSCurses.Curses
 import UI.HSCurses.CursesHelper
@@ -32,8 +33,7 @@ view ln x = getConst $ ln Const x
 ------------------------------------------
 
 populate :: GameOp ()
-populate = do
-    runLevelOp $ do
+populate = runLevelOp $ do
         --fillM $ mkTile (Just Stone) Nothing Nothing Nothing
         --setNpc (2, 3) (Just (Npc (Player, 1)))
         setNpc (3, 4) (Just (Npc (Goblin, 100)))
@@ -42,27 +42,17 @@ populate = do
         setWall (2, 4) (Just Brick)
         o <- getWall (2, 4)
         setWall (1, 2) o
-    return ()
 
 printLevel :: GameOp [String]
 printLevel = runLevelOp $ do
     (w, h) <- sizeM
     rows <- foldGridM foldFn []
-    return $ rows
+    return rows
     where
         foldFn :: [String] -> Pos -> Tile -> [String]
         foldFn []  (0, _) t = [show t]
         foldFn acc (0, _) t = acc ++ [show t]
-        foldFn acc _      t = (init acc) ++ [last acc ++ show t]
-
-findPlayer :: LevelOp (Maybe Pos)
-findPlayer = do
-    pos <- foldGridM foldFn Nothing
-    return pos
-    where
-        foldFn acc pos (Tile _ _ _ (Just (Npc (Player, _)))) = Just pos
-        foldFn acc _ _ = acc
-
+        foldFn acc _      t = init acc ++ [last acc ++ show t]
 
 main :: IO ()
 main = do
@@ -121,14 +111,6 @@ main = do
 --------------------------------------------------
 
 
-
-foldNpcs :: (acc -> Pos -> Npc -> acc) -> acc -> GameOp acc
-foldNpcs fn acc = do
-    foldLevelM foldFn acc
-    where
-        foldFn acc pos (Tile _ _ _ (Just npc)) = fn acc pos npc
-        foldFn acc _ _ = acc
-
 --instance MakeableOp GameOpT
 
 playerAct :: Key -> GameOp Bool
@@ -143,9 +125,7 @@ playerAct ch = do
     when ((x, y) /= newPos) $ do
         runLevelOp $ moveNpc (x, y) newPos
         logMessage "Player moved"
-    if ch == KeyChar 'q'
-        then return False
-        else return True
+    return $ ch /= KeyChar 'q'
 
 
 findAllNpcs :: GameOp [Npc]
@@ -166,7 +146,7 @@ gameLoop win game frameNum = do
         wMove win i 0
         wAddStr win line
     forM_ (zip [0..] messages) $ \(i, line) -> do
-        wMove win ((length render) + i) 0
+        wMove win (length render + i) 0
         wAddStr win line
     wMove win 0 0
     wAddStr win (show frameNum)
@@ -178,10 +158,9 @@ gameLoop win game frameNum = do
 
     let (mustQuit, game') = runGameOp game $ do
         beginMessageFrame
-        mustQuit <- not <$> (playerAct ch)
+        mustQuit <- not <$> playerAct ch
         npcs <- findAllNpcs
-        forM_ npcs $ \npc -> do
-            runNpcOp npc npcAct
+        forM_ npcs $ \npc -> runNpcOp npc npcAct
         return mustQuit
 
     if mustQuit
@@ -191,12 +170,10 @@ gameLoop win game frameNum = do
 npcAct :: NpcOp ()
 npcAct = do
     (Npc (race, id), pos) <- whoAmI
-    if race /= Player
-    then do
+    when (race /= Player) $ do
         rndDir <- getRandom random
         npcWalk rndDir
         return ()
-    else return ()
 
 
 

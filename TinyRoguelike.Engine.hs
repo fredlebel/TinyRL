@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -XRankNTypes #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -9,8 +9,10 @@ module TinyRoguelike.Engine
 , NpcRace (..)
 , NpcId
 , Npc (Npc)
-, Tile (Tile)
+, Tile
 , mkTile
+, foldNpcs
+, findNpc, findPlayer
 , Level
 , LevelOp
 , getFloor, getItem, getWall, getNpc
@@ -19,9 +21,7 @@ module TinyRoguelike.Engine
 , GameState (GameStateCtor)
 , Pos
 , GameOp, runGameOp, execGameOp, evalGameOp
-, NpcOp, runNpcOp
 , runLevelOp
-, npcWalk, whoAmI
 , foldLevelM
 , Direction (..)
 , RandomProvider (..)
@@ -63,6 +63,9 @@ data NpcRace = Player | Rat | Goblin deriving (Eq, Ord, Enum, Read)
 type NpcId = Int
 newtype Npc = Npc (NpcRace, NpcId) deriving Eq
 
+npcRace (Npc (race, id)) = race
+npcId (Npc (race, id)) = id
+
 -- Show instances for debugging purposes only
 instance Show Floor where
     show Stone = "."
@@ -96,7 +99,7 @@ instance Show Tile where
     show _ = " "
 
 mkTile :: Maybe Floor -> Maybe Item -> Maybe Wall -> Maybe Npc -> Tile
-mkTile f i w n = Tile f i w n
+mkTile = Tile
 
 ------------------------------------------------
 -- Level related functions
@@ -143,11 +146,10 @@ setNpc pos o = do
     setM pos $ t { _npc = o }
 
 -- Functions to move objects
---moveObject :: ((Int, Int) -> WorldOp (Maybe o)) -> ((Int, Int) -> (Maybe o) -> WorldOp ()) -> (Int, Int) -> (Int, Int) -> WorldOp ()
 moveObject getter setter p1 p2 = do
     o1 <- getter p1
     o2 <- getter p2
-    if (isJust o1 && isNothing o2)
+    if isJust o1 && isNothing o2
         then do
             setter p1 Nothing
             setter p2 o1
@@ -160,14 +162,27 @@ moveWall = moveObject getWall setWall
 moveNpc = moveObject getNpc setNpc
 
 findOnLevel :: (Tile -> Bool) -> LevelOp (Maybe Pos)
-findOnLevel fn = do
-    pos <- foldGridM foldFn Nothing
-    return pos
+findOnLevel fn = foldGridM foldFn Nothing
     where
-        foldFn acc pos t = case fn t of
-                                True -> Just pos
-                                False -> acc
+        foldFn acc pos t = if fn t then Just pos else acc
 
+foldNpcs :: (acc -> Pos -> Npc -> acc) -> acc -> GameOp acc
+foldNpcs fn = foldLevelM foldFn
+    where
+        foldFn acc pos (Tile _ _ _ (Just npc)) = fn acc pos npc
+        foldFn acc _ _ = acc
+
+findNpc :: (Npc -> Bool) -> LevelOp (Maybe Pos)
+findNpc fn = findOnLevel (\t -> match . _npc $ t)
+    where
+        match Nothing = False
+        match (Just npc) = fn npc
+
+findPlayer :: LevelOp (Maybe Pos)
+findPlayer = findNpc match
+    where
+        match (Npc (Player, _)) = True
+        match _ = False
 
 data GameState = GameStateCtor
     { _worldMap :: Grid Tile
@@ -215,25 +230,6 @@ runLevelOp op = GameOpCtor $ \game -> do
     ret <- op
     return (ret, game)
 
-data NpcOp r = NpcOpCtor { _npcOpFn :: Pos -> GameOp (r, Pos) }
-
-instance Functor NpcOp where
-    fmap fn m = NpcOpCtor $ \pos -> do
-        (ret, pos') <- _npcOpFn m pos
-        return (fn ret, pos')
-
-instance Monad NpcOp where
-    return ret = NpcOpCtor $ \pos -> return (ret, pos)
-    m >>= fn = NpcOpCtor $ \pos -> do
-        (ret, pos') <- _npcOpFn m pos
-        _npcOpFn (fn ret) pos'
-
-runNpcOp :: Npc -> NpcOp r -> GameOp r
-runNpcOp npc op = do
-    Just pos <- runLevelOp $ findOnLevel (\t -> _npc t == Just npc)
-    (r, pos') <- _npcOpFn op pos
-    return r
-
 data Direction = North | East | South | West
     deriving (Eq, Bounded, Enum)
 
@@ -253,33 +249,6 @@ instance Random Direction where
     randomR (a,b) g = case randomR (fromEnum a, fromEnum b) g of
                         (r, g') -> (toEnum r, g')
 
-npcWalk :: Direction -> NpcOp Bool
-npcWalk dir = NpcOpCtor $ \oldPos -> do
-    let newPos = offsetPos dir oldPos
-    msg <- runLevelOp $ do
-        onLevel <- containsM newPos
-        if not onLevel
-            then return $ Just "Npc tried to move off the map"
-            else do
-                wall <- getWall newPos
-                npc <- getNpc newPos
-                if  | isJust wall -> return $ Just "Npc bumped in wall"
-                    | isJust npc  -> return $ Just "Npc bumped in another npc"
-                    | otherwise   -> return Nothing
-    ret <- case msg of
-        Just str -> do
-            logMessage (fromJust msg)
-            return False
-        otherwise -> do
-            runLevelOp $ moveNpc oldPos newPos
-            return True
-    return (ret, if ret then newPos else oldPos)
-
-whoAmI :: NpcOp (Npc, Pos)
-whoAmI = NpcOpCtor $ \pos -> do
-    Just npc <- runLevelOp $ getNpc pos
-    return ((npc, pos), pos)
-
 -- GameOp and NpcOp expose a random generator
 class Monad m => RandomProvider m where
     getRandom :: (StdGen -> (ret, StdGen)) -> m ret
@@ -288,12 +257,6 @@ instance RandomProvider GameOp where
     getRandom fn = GameOpCtor $ \game -> do
         let (ret, g) = fn (_rnd game)
         return (ret, game { _rnd = g })
-
-instance RandomProvider NpcOp where
-    getRandom fn = NpcOpCtor $ \pos -> do
-        ret <- getRandom fn
-        return (ret, pos)
-
 
 -------------------------------
 class Monad m => MessageLogger m where
@@ -316,28 +279,21 @@ instance MessageLogger GameOp where
         return ((), game { _messages = (msg:frame):frames })
     getLastFrameMessages = GameOpCtor $ \game -> do
         let (frame:frames) = _messages game
-        if null (_messages game)
-            then return ([], game)
-            else return (head . _messages $ game, game)
-    getAllMessages = GameOpCtor $ \game -> do
+        return $ if null (_messages game)
+            then ([], game)
+            else (head . _messages $ game, game)
+    getAllMessages = GameOpCtor $ \game ->
         return (_messages game, game)
     clearOldMessageFrames = GameOpCtor $ \game -> do
         let (frame:frames) = _messages game
         return ((), game { _messages = [frame] })
-
-instance MessageLogger NpcOp where
-    beginMessageFrame     = NpcOpCtor $ \pos -> (, pos) <$> beginMessageFrame
-    logMessage msg        = NpcOpCtor $ \pos -> (, pos) <$> logMessage msg
-    getLastFrameMessages  = NpcOpCtor $ \pos -> (, pos) <$> getLastFrameMessages
-    getAllMessages        = NpcOpCtor $ \pos -> (, pos) <$> getAllMessages
-    clearOldMessageFrames = NpcOpCtor $ \pos -> (, pos) <$> clearOldMessageFrames
 
 -- Level parsing and building
 
 
 loadLevel :: String -> Either String Level
 loadLevel levelData =
-    case parseLevelDesc levelData of
+    case parseLevelDescription levelData of
         Left err   -> Left err
         Right desc -> buildLevel desc
 
@@ -366,15 +322,15 @@ buildLevel desc = case runGridOp emptyLevel buildOp of
                     Left err -> return tileE
                     Right tile -> setiM i tile >> return tileE
             let errors = map fromLeft . filter isLeft $ tiles
-            when (not (null errors)) $ do
-                fail $ (concat . intersperse " - " $ errors)
+            unless (null errors) $
+                fail (intercalate " - " errors)
 
 
 
 
 -- The Quasi Quoter
 
-quoteLevelE str = case parseLevelDesc str of
+quoteLevelE str = case parseLevelDescription str of
     Left err -> fail err
     Right desc -> case buildLevel desc of
         Left err -> fail err
