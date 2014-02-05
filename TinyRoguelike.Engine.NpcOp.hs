@@ -9,6 +9,7 @@ module TinyRoguelike.Engine.NpcOp
 ) where
 
 import TinyRoguelike.Engine
+import TinyRoguelike.Engine.GameOp
 import Control.Applicative
 import Data.Grid
 import Data.Maybe

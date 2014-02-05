@@ -9,20 +9,15 @@ module TinyRoguelike.Engine
 , NpcRace (..)
 , NpcId
 , Npc (Npc)
-, Tile
+, Tile (..)
 , mkTile
-, foldNpcs
 , findNpc, findPlayer
 , Level
 , LevelOp
 , getFloor, getItem, getWall, getNpc
 , setFloor, setItem, setWall, setNpc
 , moveFloor, moveItem, moveWall, moveNpc
-, GameState (GameStateCtor)
 , Pos
-, GameOp, runGameOp, execGameOp, evalGameOp
-, runLevelOp
-, foldLevelM
 , Direction (..)
 , RandomProvider (..)
 , MessageLogger (..)
@@ -166,12 +161,6 @@ findOnLevel fn = foldGridM foldFn Nothing
     where
         foldFn acc pos t = if fn t then Just pos else acc
 
-foldNpcs :: (acc -> Pos -> Npc -> acc) -> acc -> GameOp acc
-foldNpcs fn = foldLevelM foldFn
-    where
-        foldFn acc pos (Tile _ _ _ (Just npc)) = fn acc pos npc
-        foldFn acc _ _ = acc
-
 findNpc :: (Npc -> Bool) -> LevelOp (Maybe Pos)
 findNpc fn = findOnLevel (\t -> match . _npc $ t)
     where
@@ -184,51 +173,7 @@ findPlayer = findNpc match
         match (Npc (Player, _)) = True
         match _ = False
 
-data GameState = GameStateCtor
-    { _worldMap :: Grid Tile
-    , _inventory :: [Item]
-    , _messages :: [[String]]
-    , _rnd :: StdGen
-    }
-
 type Pos = (Int, Int)
-{-
-data GameOpT
-type GameOp = OperationST GameOpT (GameState, forall s. MV.MVector s Tile)
--}
-
-data GameOp r = GameOpCtor { _gameOpFn :: GameState -> LevelOp (r, GameState) }
-
-instance Functor GameOp where
-    fmap fn m = GameOpCtor $ \game -> do
-        (ret, game') <- _gameOpFn m game
-        return (fn ret, game')
-
-instance Monad GameOp where
-    return ret = GameOpCtor $ \game -> return (ret, game)
-    m >>= fn = GameOpCtor $ \game -> do
-        (ret, game') <- _gameOpFn m game
-        _gameOpFn (fn ret) game'
-
-runGameOp :: GameState -> GameOp r -> (r, GameState)
-runGameOp game op = (ret, game'')
-    where
-        -- TODO: Error propagation.
-        (Right (ret, game'), newGrid) = runGridOp (_worldMap game) (_gameOpFn op game)
-        game'' = game' { _worldMap = newGrid }
-
-evalGameOp game op = fst $ runGameOp game op
-execGameOp game op = snd $ runGameOp game op
-
-foldLevelM :: (acc -> Pos -> Tile -> acc) -> acc -> GameOp acc
-foldLevelM fn acc = GameOpCtor $ \game -> do
-    ret <- foldGridM fn acc
-    return (ret, game)
-
-runLevelOp :: LevelOp r -> GameOp r
-runLevelOp op = GameOpCtor $ \game -> do
-    ret <- op
-    return (ret, game)
 
 data Direction = North | East | South | West
     deriving (Eq, Bounded, Enum)
@@ -253,11 +198,6 @@ instance Random Direction where
 class Monad m => RandomProvider m where
     getRandom :: (StdGen -> (ret, StdGen)) -> m ret
 
-instance RandomProvider GameOp where
-    getRandom fn = GameOpCtor $ \game -> do
-        let (ret, g) = fn (_rnd game)
-        return (ret, game { _rnd = g })
-
 -------------------------------
 class Monad m => MessageLogger m where
     -- Begin a new message frame.
@@ -269,24 +209,6 @@ class Monad m => MessageLogger m where
     getAllMessages :: m [[String]]
     -- Clear any messages not in the current frame.
     clearOldMessageFrames :: m ()
-
-instance MessageLogger GameOp where
-    beginMessageFrame = GameOpCtor $ \game -> do
-        let msgs = _messages game
-        return ((), game { _messages = [] : msgs })
-    logMessage msg = GameOpCtor $ \game -> do
-        let (frame:frames) = _messages game
-        return ((), game { _messages = (msg:frame):frames })
-    getLastFrameMessages = GameOpCtor $ \game -> do
-        let (frame:frames) = _messages game
-        return $ if null (_messages game)
-            then ([], game)
-            else (head . _messages $ game, game)
-    getAllMessages = GameOpCtor $ \game ->
-        return (_messages game, game)
-    clearOldMessageFrames = GameOpCtor $ \game -> do
-        let (frame:frames) = _messages game
-        return ((), game { _messages = [frame] })
 
 -- Level parsing and building
 

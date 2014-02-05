@@ -13,6 +13,7 @@ import Control.Monad
 import Control.Monad.Identity
 import Control.Applicative
 import TinyRoguelike.Engine
+import TinyRoguelike.Engine.GameOp
 import TinyRoguelike.Engine.NpcOp
 import TinyRoguelike.LevelParser
 import UI.HSCurses.Curses
@@ -96,7 +97,7 @@ main = do
         #..............................................................................#
         ################################################################################|]
 
-    let game = GameStateCtor firstLevel [] [] (mkStdGen 1234)
+    let game = mkGame firstLevel [] [] (mkStdGen 1234)
     gameLoop win (execGameOp game populate) 0
     wclear win
     wMove win 0 0
