@@ -39,7 +39,7 @@ import Language.Haskell.TH.Quote
 
 data Floor = Stone | Lava deriving (Eq, Ord, Enum, Read)
 data Wall = Brick | Rubble | ClosedDoor | OpenedDoor deriving (Eq, Ord, Enum, Read)
-data Item = Sword | Ectoplasm deriving (Eq, Ord, Enum, Read)
+data Item = Sword | Gun deriving (Eq, Ord, Enum, Read)
 data NpcRace = Player | Rat | Goblin deriving (Eq, Ord, Enum, Read)
 
 blocksMove :: Wall -> Bool
@@ -66,8 +66,8 @@ instance Show Wall where
     show OpenedDoor = "/"
 
 instance Show Item where
-    show Sword = "/"
-    show Ectoplasm = "!"
+    show Sword = "\\"
+    show Gun = "}"
 
 instance Show Npc where
     show (Npc (Player, _)) = "@"

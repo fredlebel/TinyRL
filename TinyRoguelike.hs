@@ -1,6 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE LambdaCase #-}
 
 import System.Random
 import Data.Grid
@@ -63,6 +64,7 @@ main = do
     let (Right firstLevel) = buildLevel [level|
         # = (Stone, _, Brick, _)
         . = (Stone, _, _, _)
+        } = (Stone, Gun, _, _)
         + = (Stone, _, ClosedDoor, _)
         @ = (Stone, _, _, Player)
         g = (Stone, _, _, Goblin)
@@ -72,17 +74,17 @@ main = do
         #...............#..............................................................#
         #.....g.........#..............................................................#
         #...............#....g.........................................................#
-        #...............#..............................................................#
-        #...............+..............................................................#
-        #################...........~~~~...............................................#
-        #....g..........#.........~~~~~~~~.............................................#
-        #............@..#.........~~~~~~~~.............................................#
-        #...............#.g.........~~~~~~~~...........................................#
-        #...............#.............~~~~~~~~.........................................#
-        ###############+#.................~~~~.........................................#
-        #..................................~~..........................................#
-        #..............................................................................#
-        #...g..........................................................................#
+        #...............#.......###############........................................#
+        #...............+.......#......................................................#
+        ######################..#...~~~~...............................................#
+        #....g..........#.....}.#.~~~~~~~~.............................................#
+        #............@..+.......#.~~~~~~~~.............................................#
+        #...............#.g.....#...~~~~~~~~...........................................#
+        #...............#.......#.....~~~~~~~~.........................................#
+        ###############+#.......#.........~~~~.........................................#
+        #.......................#..........~~..........................................#
+        #.......................#......................................................#
+        #...g...................###############........................................#
         #..............................................................................#
         #..............................................................................#
         #..............................................................................#
@@ -118,17 +120,19 @@ data KeyCommand =
     AbortedCommand
 
 mapKeyCommand :: Key -> KeyCommand
-mapKeyCommand (KeyChar 'w') = CompleteCommand $ Move North
-mapKeyCommand KeyUp         = CompleteCommand $ Move North
-mapKeyCommand (KeyChar 'a') = CompleteCommand $ Move West
-mapKeyCommand KeyLeft       = CompleteCommand $ Move West
-mapKeyCommand (KeyChar 's') = CompleteCommand $ Move South
-mapKeyCommand KeyDown       = CompleteCommand $ Move South
-mapKeyCommand (KeyChar 'd') = CompleteCommand $ Move East
-mapKeyCommand KeyRight      = CompleteCommand $ Move East
-mapKeyCommand (KeyChar 'Q') = CompleteCommand $ QuitGame
-mapKeyCommand (KeyChar 'c') = WaitForDirection CloseDoor
-mapKeyCommand _             = AbortedCommand
+mapKeyCommand = \case
+    (KeyChar 'w') -> CompleteCommand $ Move North
+    KeyUp         -> CompleteCommand $ Move North
+    (KeyChar 'a') -> CompleteCommand $ Move West
+    KeyLeft       -> CompleteCommand $ Move West
+    (KeyChar 's') -> CompleteCommand $ Move South
+    KeyDown       -> CompleteCommand $ Move South
+    (KeyChar 'd') -> CompleteCommand $ Move East
+    KeyRight      -> CompleteCommand $ Move East
+    (KeyChar 'Q') -> CompleteCommand $ QuitGame
+    (KeyChar 'c') -> WaitForDirection CloseDoor
+    (KeyChar 'o') -> WaitForDirection OpenDoor
+    _             -> AbortedCommand
 
 promptForDirection :: IO (Maybe Direction)
 promptForDirection = do
@@ -142,7 +146,7 @@ promptForDirection = do
         KeyDown       -> return $ Just South
         (KeyChar 'd') -> return $ Just East
         KeyRight      -> return $ Just East
-        _ -> return $ Nothing
+        _             -> return $ Nothing
 
 promptForPlayerAction :: IO PlayerAction
 promptForPlayerAction = do
@@ -165,11 +169,19 @@ checkActionContext (Move direction) = do
         _               -> return (Move direction)
 checkActionContext act = return act
 
+-- Implementation of various player actions
 playerAct :: PlayerAction -> GameOp ()
 playerAct (Move direction) = do
-    pos <- findPlayer
-    _ <- moveNpc pos (offsetPos direction pos)
-    return ()
+    oldPos <- findPlayer
+    let newPos = offsetPos direction oldPos
+    canMove <- not <$> isTileBlocked newPos
+    when canMove $ do
+        _ <- moveNpc oldPos newPos
+        maybeItem <- getItem newPos
+        case maybeItem of
+            Nothing -> return ()
+            Just item -> addToInventory item
+        setItem newPos Nothing
 playerAct (OpenDoor direction) = do
     doorPos <- offsetPos direction <$> findPlayer
     -- TODO: GameOp failures
@@ -192,8 +204,8 @@ findAllNpcs = foldNpcs foldFn []
 
 
 renderGame win game frameNum = do
-    -- Print the level
     wclear win
+    -- Print the level
     let ((render, messages), _) = runGameOp game $ do
         r <- printLevel
         m <- getLastFrameMessages
@@ -201,8 +213,15 @@ renderGame win game frameNum = do
     forM_ (zip [0..] render) $ \(i, line) -> do
         wMove win i 0
         wAddStr win line
+    -- Print the items
+    let items = evalGameOp game getInventory
+    wMove win (length render) 0
+    wAddStr win "Items: "
+    forM_ items $ \item -> do
+        wAddStr win (show item)
+    -- Print the messages
     forM_ (zip [0..] messages) $ \(i, line) -> do
-        wMove win (length render + i) 0
+        wMove win (length render + i + 1) 0
         wAddStr win line
     wMove win 0 0
     wAddStr win (show frameNum)

@@ -7,11 +7,13 @@ module TinyRoguelike.Engine.GameOp
 , GameState
 , mkGame
 , runLevelOp
-, getFloor, getItem, getWall, getNpc
+, getFloor, getItem, getWall, getNpc, getTile
 , setFloor, setItem, setWall, setNpc
 , moveFloor, moveItem, moveWall, moveNpc
 , foldLevelM, foldNpcs
 , findOnLevel, findNpc, findPlayer
+, getInventory, addToInventory
+, isTileBlocked
 ) where
 
 import System.Random
@@ -93,6 +95,7 @@ getFloor = getObject _floor
 getItem = getObject _item
 getWall = getObject _wall
 getNpc = getObject _npc
+getTile = getObject id
 
 -- Setters for various things found in a tile
 -- Not using a base function because fields are not first class.
@@ -157,7 +160,13 @@ findPlayer = fromJust <$> findNpc match
         match (Npc (Player, _)) = True
         match _ = False
 
+getInventory = GameOpCtor $ \game -> do
+    return (_inventory game, game)
 
+addToInventory item = GameOpCtor $ \game -> do
+    return ((), game { _inventory = (_inventory game) ++ [item] })
 
-
-
+isTileBlocked pos = do
+    blockingWall <- (maybe False blocksMove) <$> getWall pos
+    blockingNpc <- isJust <$> getNpc pos
+    return $ blockingWall || blockingNpc
