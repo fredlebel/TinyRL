@@ -109,19 +109,52 @@ main = do
 data PlayerAction =
     Move Direction |
     OpenDoor Direction |
+    CloseDoor Direction |
     QuitGame
 
-mapPlayerAction :: Key -> Maybe PlayerAction
-mapPlayerAction (KeyChar 'w') = Just $ Move North
-mapPlayerAction KeyUp         = Just $ Move North
-mapPlayerAction (KeyChar 'a') = Just $ Move West
-mapPlayerAction KeyLeft       = Just $ Move West
-mapPlayerAction (KeyChar 's') = Just $ Move South
-mapPlayerAction KeyDown       = Just $ Move South
-mapPlayerAction (KeyChar 'd') = Just $ Move East
-mapPlayerAction KeyRight      = Just $ Move East
-mapPlayerAction (KeyChar 'Q') = Just $ QuitGame
-mapPlayerAction _ = Nothing
+data KeyCommand =
+    CompleteCommand PlayerAction |
+    WaitForDirection (Direction -> PlayerAction) |
+    AbortedCommand
+
+mapKeyCommand :: Key -> KeyCommand
+mapKeyCommand (KeyChar 'w') = CompleteCommand $ Move North
+mapKeyCommand KeyUp         = CompleteCommand $ Move North
+mapKeyCommand (KeyChar 'a') = CompleteCommand $ Move West
+mapKeyCommand KeyLeft       = CompleteCommand $ Move West
+mapKeyCommand (KeyChar 's') = CompleteCommand $ Move South
+mapKeyCommand KeyDown       = CompleteCommand $ Move South
+mapKeyCommand (KeyChar 'd') = CompleteCommand $ Move East
+mapKeyCommand KeyRight      = CompleteCommand $ Move East
+mapKeyCommand (KeyChar 'Q') = CompleteCommand $ QuitGame
+mapKeyCommand (KeyChar 'c') = WaitForDirection CloseDoor
+mapKeyCommand _             = AbortedCommand
+
+promptForDirection :: IO (Maybe Direction)
+promptForDirection = do
+    ch <- getCh
+    case ch of
+        (KeyChar 'w') -> return $ Just North
+        KeyUp         -> return $ Just North
+        (KeyChar 'a') -> return $ Just West
+        KeyLeft       -> return $ Just West
+        (KeyChar 's') -> return $ Just South
+        KeyDown       -> return $ Just South
+        (KeyChar 'd') -> return $ Just East
+        KeyRight      -> return $ Just East
+        _ -> return $ Nothing
+
+promptForPlayerAction :: IO PlayerAction
+promptForPlayerAction = do
+    ch <- getCh
+    case mapKeyCommand ch of
+        CompleteCommand cmd -> return cmd
+        AbortedCommand      -> promptForPlayerAction
+        WaitForDirection fn -> do
+            chDir <- promptForDirection
+            case chDir of
+                Just dir -> return (fn dir)
+                Nothing  -> promptForPlayerAction
 
 checkActionContext :: PlayerAction -> GameOp PlayerAction
 checkActionContext (Move direction) = do
@@ -132,19 +165,24 @@ checkActionContext (Move direction) = do
         _               -> return (Move direction)
 checkActionContext act = return act
 
-playerAct :: PlayerAction -> GameOp Bool
+playerAct :: PlayerAction -> GameOp ()
 playerAct (Move direction) = do
     pos <- findPlayer
     _ <- moveNpc pos (offsetPos direction pos)
-    return True
+    return ()
 playerAct (OpenDoor direction) = do
     doorPos <- offsetPos direction <$> findPlayer
     -- TODO: GameOp failures
-    Just ClosedDoor <- getWall doorPos
-    setWall doorPos (Just OpenedDoor)
-    return True
+    wall <- getWall doorPos
+    when (wall == Just ClosedDoor) $
+        setWall doorPos (Just OpenedDoor)
+playerAct (CloseDoor direction) = do
+    doorPos <- offsetPos direction <$> findPlayer
+    wall <- getWall doorPos
+    when (wall == Just OpenedDoor) $
+        setWall doorPos (Just ClosedDoor)
 
-playerAct QuitGame = return False
+playerAct QuitGame = return ()
 
 
 findAllNpcs :: GameOp [Npc]
@@ -152,9 +190,8 @@ findAllNpcs = foldNpcs foldFn []
     where
         foldFn acc _ npc = npc : acc
 
-gameLoop :: Window -> GameState -> Int -> IO GameState
-gameLoop win game frameNum = do
 
+renderGame win game frameNum = do
     -- Print the level
     wclear win
     let ((render, messages), _) = runGameOp game $ do
@@ -171,22 +208,23 @@ gameLoop win game frameNum = do
     wAddStr win (show frameNum)
     wRefresh win
     --refresh
-    --update
 
-    ch <- getCh
+gameLoop :: Window -> GameState -> Int -> IO GameState
+gameLoop win game frameNum = do
 
-    let (mustQuit, game') = runGameOp game $ do
-        beginMessageFrame
-        case (mapPlayerAction ch) of
-            Just act -> do
-                playerQuit <- not <$> (checkActionContext act >>= playerAct)
+    renderGame win game frameNum
+
+    act <- promptForPlayerAction
+
+    case act of
+        QuitGame -> return game
+        _        -> do
+            let game' = execGameOp game $ do
+                beginMessageFrame
+                checkActionContext act >>= playerAct
                 npcs <- findAllNpcs
                 forM_ npcs $ \npc -> runNpcOp npc npcAct
-                return playerQuit
-            Nothing -> return False
-    if mustQuit
-        then return game'
-        else gameLoop win game' (frameNum + 1)
+            gameLoop win game' (frameNum + 1)
 
 npcAct :: NpcOp ()
 npcAct = do
