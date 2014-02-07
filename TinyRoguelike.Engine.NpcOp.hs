@@ -30,15 +30,15 @@ instance Monad NpcOp where
 
 runNpcOp :: Npc -> NpcOp r -> GameOp r
 runNpcOp npc op = do
-    Just pos <- runLevelOp $ findNpc (==npc)
+    Just pos <- findNpc (==npc)
     (r, _) <- _npcOpFn op pos
     return r
 
 npcWalk :: Direction -> NpcOp Bool
 npcWalk dir = NpcOpCtor $ \oldPos -> do
     let newPos = offsetPos dir oldPos
-    msg <- runLevelOp $ do
-        onLevel <- containsM newPos
+    onLevel <- runLevelOp $ containsM newPos
+    msg <- do
         if not onLevel
             then return $ Just "Npc tried to move off the map"
             else do
@@ -52,13 +52,13 @@ npcWalk dir = NpcOpCtor $ \oldPos -> do
             logMessage (str)
             return False
         _ -> do
-            _ <- runLevelOp $ moveNpc oldPos newPos
+            _ <- moveNpc oldPos newPos
             return True
     return (ret, if ret then newPos else oldPos)
 
 whoAmI :: NpcOp (Npc, Pos)
 whoAmI = NpcOpCtor $ \pos -> do
-    Just npc <- runLevelOp $ getNpc pos
+    Just npc <- getNpc pos
     return ((npc, pos), pos)
 
 instance RandomProvider NpcOp where

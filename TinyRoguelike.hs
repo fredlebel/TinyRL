@@ -28,7 +28,7 @@ view ln x = getConst $ ln Const x
 ------------------------------------------
 
 populate :: GameOp ()
-populate = runLevelOp $ do
+populate = do
         --fillM $ mkTile (Just Stone) Nothing Nothing Nothing
         --setNpc (2, 3) (Just (Npc (Player, 1)))
         setNpc (3, 4) (Just (Npc (Goblin, 100)))
@@ -63,6 +63,7 @@ main = do
     let (Right firstLevel) = buildLevel [level|
         # = (Stone, _, Brick, _)
         . = (Stone, _, _, _)
+        + = (Stone, _, ClosedDoor, _)
         @ = (Stone, _, _, Player)
         g = (Stone, _, _, Goblin)
         ~ = (Lava, _, _, _)
@@ -72,13 +73,13 @@ main = do
         #.....g.........#..............................................................#
         #...............#....g.........................................................#
         #...............#..............................................................#
-        #..............................................................................#
+        #...............+..............................................................#
         #################...........~~~~...............................................#
         #....g..........#.........~~~~~~~~.............................................#
         #............@..#.........~~~~~~~~.............................................#
         #...............#.g.........~~~~~~~~...........................................#
         #...............#.............~~~~~~~~.........................................#
-        ###############.#.................~~~~.........................................#
+        ###############+#.................~~~~.........................................#
         #..................................~~..........................................#
         #..............................................................................#
         #...g..........................................................................#
@@ -105,19 +106,45 @@ main = do
 
 --instance MakeableOp GameOpT
 
-playerAct :: Key -> GameOp Bool
-playerAct ch = do
-    Just (x, y) <- runLevelOp findPlayer
-    let newPos = case ch of
-                    KeyChar 'w' -> (x, y-1)
-                    KeyChar 'a' -> (x-1, y)
-                    KeyChar 's' -> (x, y+1)
-                    KeyChar 'd' -> (x+1, y)
-                    _   -> (x, y)
-    when ((x, y) /= newPos) $ do
-        _ <- runLevelOp $ moveNpc (x, y) newPos
-        logMessage "Player moved"
-    return $ ch /= KeyChar 'q'
+data PlayerAction =
+    Move Direction |
+    OpenDoor Direction |
+    QuitGame
+
+mapPlayerAction :: Key -> Maybe PlayerAction
+mapPlayerAction (KeyChar 'w') = Just $ Move North
+mapPlayerAction KeyUp         = Just $ Move North
+mapPlayerAction (KeyChar 'a') = Just $ Move West
+mapPlayerAction KeyLeft       = Just $ Move West
+mapPlayerAction (KeyChar 's') = Just $ Move South
+mapPlayerAction KeyDown       = Just $ Move South
+mapPlayerAction (KeyChar 'd') = Just $ Move East
+mapPlayerAction KeyRight      = Just $ Move East
+mapPlayerAction (KeyChar 'Q') = Just $ QuitGame
+mapPlayerAction _ = Nothing
+
+checkActionContext :: PlayerAction -> GameOp PlayerAction
+checkActionContext (Move direction) = do
+    newPos <- offsetPos direction <$> findPlayer
+    wall <- getWall newPos
+    case wall of
+        Just ClosedDoor -> return (OpenDoor direction)
+        _               -> return (Move direction)
+checkActionContext act = return act
+
+playerAct :: PlayerAction -> GameOp Bool
+playerAct (Move direction) = do
+    pos <- findPlayer
+    _ <- moveNpc pos (offsetPos direction pos)
+    return True
+playerAct (OpenDoor direction) = do
+    doorPos <- offsetPos direction <$> findPlayer
+    -- TODO: GameOp failures
+    Just ClosedDoor <- getWall doorPos
+    setWall doorPos (Just OpenedDoor)
+    return True
+
+playerAct QuitGame = return False
 
 
 findAllNpcs :: GameOp [Npc]
@@ -150,11 +177,13 @@ gameLoop win game frameNum = do
 
     let (mustQuit, game') = runGameOp game $ do
         beginMessageFrame
-        playerQuit <- not <$> playerAct ch
-        npcs <- findAllNpcs
-        forM_ npcs $ \npc -> runNpcOp npc npcAct
-        return playerQuit
-
+        case (mapPlayerAction ch) of
+            Just act -> do
+                playerQuit <- not <$> (checkActionContext act >>= playerAct)
+                npcs <- findAllNpcs
+                forM_ npcs $ \npc -> runNpcOp npc npcAct
+                return playerQuit
+            Nothing -> return False
     if mustQuit
         then return game'
         else gameLoop win game' (frameNum + 1)

@@ -7,11 +7,17 @@ module TinyRoguelike.Engine.GameOp
 , GameState
 , mkGame
 , runLevelOp
+, getFloor, getItem, getWall, getNpc
+, setFloor, setItem, setWall, setNpc
+, moveFloor, moveItem, moveWall, moveNpc
 , foldLevelM, foldNpcs
+, findOnLevel, findNpc, findPlayer
 ) where
 
 import System.Random
+import Data.Maybe
 import Data.Grid
+import Control.Applicative
 import TinyRoguelike.Engine
 
 
@@ -47,17 +53,6 @@ runGameOp game op = (ret, game'')
 evalGameOp game op = fst $ runGameOp game op
 execGameOp game op = snd $ runGameOp game op
 
-foldLevelM :: (acc -> Pos -> Tile -> acc) -> acc -> GameOp acc
-foldLevelM fn acc = GameOpCtor $ \game -> do
-    ret <- foldGridM fn acc
-    return (ret, game)
-
-foldNpcs :: (acc -> Pos -> Npc -> acc) -> acc -> GameOp acc
-foldNpcs fn = foldLevelM foldFn
-    where
-        foldFn acc pos (Tile _ _ _ (Just npc)) = fn acc pos npc
-        foldFn acc _ _ = acc
-
 runLevelOp :: LevelOp r -> GameOp r
 runLevelOp op = GameOpCtor $ \game -> do
     ret <- op
@@ -85,6 +80,82 @@ instance MessageLogger GameOp where
         let frame = head . _messages $ game
         return ((), game { _messages = [frame] })
 
+-- Base functions
+
+-- Base function to extract a property of a tile
+getObject :: (Tile -> o) -> (Int, Int) -> GameOp o
+getObject fn pos = runLevelOp $ do
+    t <- getM pos
+    return $ fn t
+
+-- Getters for various things found in a tile
+getFloor = getObject _floor
+getItem = getObject _item
+getWall = getObject _wall
+getNpc = getObject _npc
+
+-- Setters for various things found in a tile
+-- Not using a base function because fields are not first class.
+
+setFloor pos o = runLevelOp $ do
+    t <- getM pos
+    setM pos $ t { _floor = o }
+
+setItem pos o = runLevelOp $ do
+    t <- getM pos
+    setM pos $ t { _item = o }
+
+setWall pos o = runLevelOp $ do
+    t <- getM pos
+    setM pos $ t { _wall = o }
+
+setNpc pos o = runLevelOp $ do
+    t <- getM pos
+    setM pos $ t { _npc = o }
+
+-- Functions to move objects
+moveObject getter setter p1 p2 = do
+    o1 <- getter p1
+    o2 <- getter p2
+    if isJust o1 && isNothing o2
+        then do
+            _ <- setter p1 Nothing
+            _ <- setter p2 o1
+            return True
+        else return False
+
+moveFloor = moveObject getFloor setFloor
+moveItem = moveObject getItem setItem
+moveWall = moveObject getWall setWall
+moveNpc = moveObject getNpc setNpc
+
+foldLevelM :: (acc -> Pos -> Tile -> acc) -> acc -> GameOp acc
+foldLevelM fn acc = GameOpCtor $ \game -> do
+    ret <- foldGridM fn acc
+    return (ret, game)
+
+foldNpcs :: (acc -> Pos -> Npc -> acc) -> acc -> GameOp acc
+foldNpcs fn = foldLevelM foldFn
+    where
+        foldFn acc pos (Tile _ _ _ (Just npc)) = fn acc pos npc
+        foldFn acc _ _ = acc
+
+findOnLevel :: (Tile -> Bool) -> GameOp (Maybe Pos)
+findOnLevel fn = runLevelOp $ foldGridM foldFn Nothing
+    where
+        foldFn acc pos t = if fn t then Just pos else acc
+
+findNpc :: (Npc -> Bool) -> GameOp (Maybe Pos)
+findNpc fn = findOnLevel (\t -> match . _npc $ t)
+    where
+        match Nothing = False
+        match (Just npc) = fn npc
+
+findPlayer :: GameOp Pos
+findPlayer = fromJust <$> findNpc match
+    where
+        match (Npc (Player, _)) = True
+        match _ = False
 
 
 

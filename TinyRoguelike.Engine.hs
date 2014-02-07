@@ -4,19 +4,15 @@
 
 module TinyRoguelike.Engine
 ( Floor (..)
-, Wall (..)
+, Wall (..), blocksMove
 , Item (..)
 , NpcRace (..)
 , NpcId
 , Npc (Npc), npcRace, npcId
 , Tile (..)
 , mkTile
-, findNpc, findPlayer
 , Level
 , LevelOp
-, getFloor, getItem, getWall, getNpc
-, setFloor, setItem, setWall, setNpc
-, moveFloor, moveItem, moveWall, moveNpc
 , Pos, offsetPos
 , Direction (..)
 , RandomProvider (..)
@@ -28,7 +24,6 @@ module TinyRoguelike.Engine
 import Prelude hiding (floor, min, max)
 import System.Random
 import Data.Grid
-import Data.Maybe
 import Data.List
 import Data.Either.Unwrap
 import Control.Monad
@@ -43,9 +38,15 @@ import Language.Haskell.TH.Quote
 ------------------------------------------------
 
 data Floor = Stone | Lava deriving (Eq, Ord, Enum, Read)
-data Wall = Brick | Rubble deriving (Eq, Ord, Enum, Read)
+data Wall = Brick | Rubble | ClosedDoor | OpenedDoor deriving (Eq, Ord, Enum, Read)
 data Item = Sword | Ectoplasm deriving (Eq, Ord, Enum, Read)
 data NpcRace = Player | Rat | Goblin deriving (Eq, Ord, Enum, Read)
+
+blocksMove :: Wall -> Bool
+blocksMove Brick      = True
+blocksMove Rubble     = True
+blocksMove ClosedDoor = True
+blocksMove OpenedDoor = False
 
 type NpcId = Int
 newtype Npc = Npc (NpcRace, NpcId) deriving Eq
@@ -59,8 +60,10 @@ instance Show Floor where
     show Lava = "~"
 
 instance Show Wall where
-    show Brick = "#"
-    show Rubble = "%"
+    show Brick      = "#"
+    show Rubble     = "%"
+    show ClosedDoor = "+"
+    show OpenedDoor = "/"
 
 instance Show Item where
     show Sword = "/"
@@ -97,73 +100,6 @@ mkTile = Tile
 type Level = Grid Tile
 type LevelOp = GridOp Tile
 
--- Base function to extract a property of a tile
-getObject :: (Tile -> o) -> (Int, Int) -> LevelOp o
-getObject fn pos = do
-    t <- getM pos
-    return $ fn t
-
--- Getters for various things found in a tile
-getFloor = getObject _floor
-getItem = getObject _item
-getWall = getObject _wall
-getNpc = getObject _npc
-
--- Setters for various things found in a tile
--- Not using a base function because fields are not first class.
-
-setFloor :: (Int, Int) -> Maybe Floor -> LevelOp ()
-setFloor pos o = do
-    t <- getM pos
-    setM pos $ t { _floor = o }
-
-setItem :: (Int, Int) -> Maybe Item -> LevelOp ()
-setItem pos o = do
-    t <- getM pos
-    setM pos $ t { _item = o }
-
-setWall :: (Int, Int) -> Maybe Wall -> LevelOp ()
-setWall pos o = do
-    t <- getM pos
-    setM pos $ t { _wall = o }
-
-setNpc :: (Int, Int) -> Maybe Npc -> LevelOp ()
-setNpc pos o = do
-    t <- getM pos
-    setM pos $ t { _npc = o }
-
--- Functions to move objects
-moveObject getter setter p1 p2 = do
-    o1 <- getter p1
-    o2 <- getter p2
-    if isJust o1 && isNothing o2
-        then do
-            _ <- setter p1 Nothing
-            _ <- setter p2 o1
-            return True
-        else return False
-
-moveFloor = moveObject getFloor setFloor
-moveItem = moveObject getItem setItem
-moveWall = moveObject getWall setWall
-moveNpc = moveObject getNpc setNpc
-
-findOnLevel :: (Tile -> Bool) -> LevelOp (Maybe Pos)
-findOnLevel fn = foldGridM foldFn Nothing
-    where
-        foldFn acc pos t = if fn t then Just pos else acc
-
-findNpc :: (Npc -> Bool) -> LevelOp (Maybe Pos)
-findNpc fn = findOnLevel (\t -> match . _npc $ t)
-    where
-        match Nothing = False
-        match (Just npc) = fn npc
-
-findPlayer :: LevelOp (Maybe Pos)
-findPlayer = findNpc match
-    where
-        match (Npc (Player, _)) = True
-        match _ = False
 
 type Pos = (Int, Int)
 
@@ -174,8 +110,8 @@ offsetPos :: Direction -> Pos -> Pos
 offsetPos dir (x, y) = case dir of
                             North -> (x, y-1)
                             South -> (x, y+1)
-                            East  -> (x-1, y)
-                            West  -> (x+1, y)
+                            East  -> (x+1, y)
+                            West  -> (x-1, y)
 
 instance Random Direction where
     random g =
