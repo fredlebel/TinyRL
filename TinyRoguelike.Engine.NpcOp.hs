@@ -11,8 +11,6 @@ module TinyRoguelike.Engine.NpcOp
 import TinyRoguelike.Engine
 import TinyRoguelike.Engine.GameOp
 import Control.Applicative
-import Data.Grid
-import Data.Maybe
 
 
 data NpcOp r = NpcOpCtor { _npcOpFn :: Pos -> GameOp (r, Pos) }
@@ -34,27 +32,13 @@ runNpcOp npc op = do
     (r, _) <- _npcOpFn op pos
     return r
 
-npcWalk :: Direction -> NpcOp Bool
+npcWalk :: Direction -> NpcOp ()
 npcWalk dir = NpcOpCtor $ \oldPos -> do
     let newPos = offsetPos dir oldPos
-    onLevel <- runLevelOp $ containsM newPos
-    msg <- do
-        if not onLevel
-            then return $ Just "Npc tried to move off the map"
-            else do
-                wall <- getWall newPos
-                npc <- getNpc newPos
-                if  | isJust wall -> return $ Just "Npc bumped in wall"
-                    | isJust npc  -> return $ Just "Npc bumped in another npc"
-                    | otherwise   -> return Nothing
-    ret <- case msg of
-        Just str -> do
-            logMessage (str)
-            return False
-        _ -> do
-            _ <- moveNpc oldPos newPos
-            return True
-    return (ret, if ret then newPos else oldPos)
+    canMove <- not <$> isTileBlocked newPos
+    if canMove
+        then moveNpc oldPos newPos >> return ((), newPos)
+        else return ((), oldPos)
 
 whoAmI :: NpcOp (Npc, Pos)
 whoAmI = NpcOpCtor $ \pos -> do

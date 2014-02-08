@@ -158,11 +158,15 @@ buildLevel desc = case runGridOp emptyLevel buildOp of
         toObject (Just str) ty = maybe (Left ("Unrecognized " ++ ty ++ " : " ++ str)) (Right . Just) (readMaybe str)
         toAvatar Nothing _ = Right Nothing
         toAvatar (Just str) i = maybe (Left ("Unrecognized avatar : " ++ str)) (Right . Just . Npc . (, i)) (readMaybe str)
+        lookupTileDef ch tbl = case lookup ch tbl of
+                                    Nothing -> Left ("Unknown tile: " ++ [ch])
+                                    Just t  -> Right t
         buildOp = do
             allTiles <- forM (zip [0..] (tiles desc)) $ \(i, ch) -> do
                 -- TODO: Add failure support to GridOp
-                let (Just (floorStr, itemStr, wallStr, avatarStr)) = lookup ch (table desc)
+                --let (Just (floorStr, itemStr, wallStr, avatarStr)) = lookup ch (table desc)
                 let tileE = do
+                    (floorStr, itemStr, wallStr, avatarStr) <- lookupTileDef ch (table desc)
                     floor  <- toObject floorStr "floor"
                     item   <- toObject itemStr "item"
                     wall   <- toObject wallStr "wall"
