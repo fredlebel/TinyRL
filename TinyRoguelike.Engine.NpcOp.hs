@@ -10,6 +10,7 @@ module TinyRoguelike.Engine.NpcOp
 
 import TinyRoguelike.Engine
 import TinyRoguelike.Engine.GameOp
+import Data.Grid
 import Control.Applicative
 
 

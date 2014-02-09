@@ -13,7 +13,7 @@ module TinyRoguelike.Engine
 , mkTile
 , Level
 , LevelOp
-, Pos, offsetPos
+, offsetPos
 , Direction (..)
 , RandomProvider (..)
 , MessageLogger (..)
@@ -101,8 +101,6 @@ type Level = Grid Tile
 type LevelOp = GridOp Tile
 
 
-type Pos = (Int, Int)
-
 data Direction = North | East | South | West
     deriving (Eq, Bounded, Enum)
 
@@ -163,19 +161,22 @@ buildLevel desc = case runGridOp emptyLevel buildOp of
                                     Just t  -> Right t
         buildOp = do
             allTiles <- forM (zip [0..] (tiles desc)) $ \(i, ch) -> do
-                -- TODO: Add failure support to GridOp
-                --let (Just (floorStr, itemStr, wallStr, avatarStr)) = lookup ch (table desc)
                 let tileE = do
+                    -- Lookup the tile symbol
                     (floorStr, itemStr, wallStr, avatarStr) <- lookupTileDef ch (table desc)
+                    -- Convert the tile objects
                     floor  <- toObject floorStr "floor"
                     item   <- toObject itemStr "item"
                     wall   <- toObject wallStr "wall"
                     avatar <- toAvatar avatarStr i
+                    -- And build a tile
                     return $ mkTile floor item wall avatar
+                -- If there were no errors building the tile then place it in the level.
                 case tileE of
                     Left _ -> return tileE
                     Right tile -> setiM i tile >> return tileE
-            let errors = map fromLeft . filter isLeft $ allTiles
+            -- Report the errors
+            let errors = nub . map fromLeft . filter isLeft $ allTiles
             unless (null errors) $
                 fail (intercalate " - " errors)
 

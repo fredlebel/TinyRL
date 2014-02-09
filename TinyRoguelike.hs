@@ -11,6 +11,7 @@ import TinyRoguelike.Engine
 import TinyRoguelike.Engine.GameOp
 import TinyRoguelike.Engine.NpcOp
 import UI.HSCurses.Curses
+--import FovPrecisePermissive
 
 
 ------------------------------------------
@@ -28,6 +29,7 @@ view ln x = getConst $ ln Const x
 -}
 ------------------------------------------
 
+{-
 printLevel :: GameOp [String]
 printLevel = runLevelOp $ foldGridM foldFn []
     where
@@ -35,6 +37,26 @@ printLevel = runLevelOp $ foldGridM foldFn []
         foldFn []  (0, _) t = [show t]
         foldFn acc (0, _) t = acc ++ [show t]
         foldFn acc _      t = init acc ++ [last acc ++ show t]
+-}
+
+printLevel :: GameOp [String]
+printLevel = do
+    visibleTiles <- viewedTiles
+    doFold visibleTiles
+    --return [show visibleTiles]
+    where
+        doFold visibleTiles = runLevelOp $ foldGridM foldFn []
+            where
+                foldFn :: [String] -> Pos -> Tile -> [String]
+                foldFn []  p@(0, _) t = if elem p visibleTiles then [show t] else [" "]
+                foldFn acc p@(0, _) t = acc ++ if elem p visibleTiles then [show t] else [" "]
+                foldFn acc p      t = init acc ++ [last acc ++ (if elem p visibleTiles then show t else " ")]
+        check pos = do
+            outOfBounds <- not <$> onLevel pos
+            if outOfBounds
+                then return True
+                else maybe False blocksMove <$> getWall pos
+
 
 main :: IO ()
 main = do
@@ -63,7 +85,7 @@ main = do
         ################################################################################
         ##############################################....##...#...#...#...#############
         #########################............#########....##.g.#.g.#.g.#.g.#############
-        #######################.......@........###.........#...#...#...#...#############
+        #######################................###.........#...#...#...#...#############
         #######################..............}.###.........##+###/###/###+##############
         #######################....###..###.....+..........+...............#############
         #########...g.##.....##....###..###....###.........#...............#############
@@ -73,7 +95,7 @@ main = do
         #########.....##.....#####..........####................########################
         ############+#######+##########+########....~~~~~~~.....########################
         ########.........###.....ggg##...#######....~~~~~~~.....########################
-        ######.............#........##...#######....~~~~~~~.....########################
+        ######.............#........##...#######....~~~@~~~.....########################
         ######.........g...+........##...#######....~~~~~~~.....########################
         ######.............####+######...#######................########################
         ########.........######..........#######................########################
@@ -81,7 +103,7 @@ main = do
         ################################################################################
         ################################################################################|]
 
-    let game = mkGame firstLevel [] [] (mkStdGen 1234)
+    let game = mkGame firstLevel [] [] [] (mkStdGen 1234)
     _ <- gameLoop win game 0
     wclear win
     wMove win 0 0
@@ -231,6 +253,7 @@ gameLoop win game frameNum = do
             let game' = execGameOp game $ do
                 beginMessageFrame
                 checkActionContext act >>= playerAct
+                processFov
                 npcs <- findAllNpcs
                 forM_ npcs $ \npc -> runNpcOp npc npcAct
             gameLoop win game' (frameNum + 1)

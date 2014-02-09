@@ -3,6 +3,7 @@
 module Data.Grid
 ( Grid
 , mkGrid
+, Pos
 , GridOp
 , width, height, widthM, heightM
 , toIndex
@@ -50,6 +51,8 @@ mkGrid (w, h) o = GridCtor
         _vector = V.replicate (w * h) o
     }
 
+type Pos = (Int, Int)
+
 {-
 type Lens x a = Functor f => (a -> f a) -> (x -> f x)
 set :: Lens x a -> a -> x -> x
@@ -78,7 +81,7 @@ widthM  g = w where (w, _) = _sizeM g
 heightM :: forall s o. MGrid s o -> Int
 heightM g = h where (_, h) = _sizeM g
 
-toIndex :: forall o. Grid o -> (Int, Int) -> Int
+toIndex :: forall o. Grid o -> Pos -> Int
 toIndex g (x, y) = y * width g + x
 
 --_get g pos    = (_vector g) V.! (toIndex g pos)
@@ -103,11 +106,11 @@ instance Monad (GridOp o) where
             Right r -> gridOpFn (fn r) mg
 
 
-getM :: (Int, Int) -> GridOp o o
+getM :: Pos -> GridOp o o
 getM (x, y) = GridOpCtor $ \mg -> Right <$> MV.read (_vectorM mg) (y * widthM mg + x)
 
 
-setM :: (Int, Int) -> o -> GridOp o ()
+setM :: Pos -> o -> GridOp o ()
 setM (x, y) o = GridOpCtor $ \mg -> Right <$> MV.write (_vectorM mg) (y * widthM mg + x) o
 
 setiM :: Int -> o -> GridOp o ()
@@ -117,7 +120,7 @@ setiM i o = GridOpCtor $ \mg -> Right <$> MV.write (_vectorM mg) i o
 sizeM :: GridOp o (Int, Int)
 sizeM = GridOpCtor $ \mg -> return . Right . _sizeM $ mg
 
-containsM :: (Int, Int) -> GridOp o Bool
+containsM :: Pos -> GridOp o Bool
 containsM (x, y) = do
     (w, h) <- sizeM
     return $ not (x < 0 || y < 0 || x >= w || y >= h)
@@ -128,7 +131,7 @@ fillM o = do
     forM_ [0..h-1] $ \y ->
         forM_ [0..w-1] $ \x -> setM (x, y) o
 
-foldGridM :: (a -> (Int, Int) -> o -> a) -> a -> GridOp o a
+foldGridM :: (a -> Pos -> o -> a) -> a -> GridOp o a
 foldGridM fn a = GridOpCtor $ \mg -> do
     v <- V.freeze (_vectorM mg)
     return . Right $ V.ifoldl (foldFn $ _sizeM mg) a v

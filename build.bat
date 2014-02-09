@@ -1,1 +1,1 @@
-ghc TinyRoguelike.hs TinyRoguelike.Engine.hs Data.Grid.hs TinyRoguelike.LevelParser.hs TinyRoguelike.Engine.GameOp.hs TinyRoguelike.Engine.NpcOp.hs -odir obj -hidir obj -Wall -Werror -fno-warn-missing-signatures
+ghc TinyRoguelike.hs TinyRoguelike.Engine.hs Data.Grid.hs TinyRoguelike.LevelParser.hs TinyRoguelike.Engine.GameOp.hs TinyRoguelike.Engine.NpcOp.hs FovPrecisePermissive.hs -odir obj -hidir obj -Wall -Werror -fno-warn-missing-signatures -fno-warn-unused-binds

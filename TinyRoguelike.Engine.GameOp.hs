@@ -14,17 +14,22 @@ module TinyRoguelike.Engine.GameOp
 , findOnLevel, findNpc, findPlayer
 , getInventory, addToInventory
 , isTileBlocked
+, onLevel
+, processFov, viewedTiles
 ) where
 
 import System.Random
 import Data.Maybe
 import Data.Grid
+import Data.List
 import Control.Applicative
 import TinyRoguelike.Engine
+import FovPrecisePermissive
 
 
 data GameState = GameStateCtor
-    { _worldMap :: Grid Tile
+    { _worldMap :: Level
+    , _memory :: [Pos]
     , _inventory :: [Item]
     , _messages :: [[String]]
     , _rnd :: StdGen
@@ -132,6 +137,9 @@ moveItem = moveObject getItem setItem
 moveWall = moveObject getWall setWall
 moveNpc = moveObject getNpc setNpc
 
+onLevel :: Pos -> GameOp Bool
+onLevel pos = runLevelOp $ containsM pos
+
 foldLevelM :: (acc -> Pos -> Tile -> acc) -> acc -> GameOp acc
 foldLevelM fn acc = GameOpCtor $ \game -> do
     ret <- foldGridM fn acc
@@ -170,3 +178,26 @@ isTileBlocked pos = do
     blockingWall <- (maybe False blocksMove) <$> getWall pos
     blockingNpc <- isJust <$> getNpc pos
     return $ blockingWall || blockingNpc
+
+rememberTiles :: [Pos] -> GameOp ()
+rememberTiles tiles = GameOpCtor $ \game -> return ((), game { _memory = newMemory game })
+    where
+        newMemory game = nub $ (_memory game) ++ tiles
+
+viewedTiles :: GameOp [Pos]
+viewedTiles = GameOpCtor $ \game -> return (_memory game, game)
+
+processFov :: GameOp ()
+processFov = do
+    pos <- findPlayer
+    visibleTiles <- computeFov check pos
+    rememberTiles visibleTiles
+    where
+        check pos = do
+            outOfBounds <- not <$> onLevel pos
+            if outOfBounds
+                then return True
+                else maybe False blocksMove <$> getWall pos
+
+
+
