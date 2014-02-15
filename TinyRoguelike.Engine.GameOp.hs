@@ -184,6 +184,9 @@ rememberTiles tiles = GameOpCtor $ \game -> return ((), game { _memory = newMemo
     where
         newMemory game = nub $ (_memory game) ++ tiles
 
+clearMemory :: GameOp ()
+clearMemory = GameOpCtor $ \game -> return ((), game { _memory = [] })
+
 viewedTiles :: GameOp [Pos]
 viewedTiles = GameOpCtor $ \game -> return (_memory game, game)
 
@@ -191,6 +194,7 @@ processFov :: GameOp ()
 processFov = do
     pos <- findPlayer
     visibleTiles <- computeFov check pos
+    --clearMemory
     rememberTiles visibleTiles
     where
         check pos = do

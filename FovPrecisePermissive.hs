@@ -57,7 +57,7 @@ viewValid v = if
     -- | (shallow v) `contains` (0, 1) || (shallow v) `contains` (1,0) -> False
     -- | otherwise -> True
     | otherwise -> False
-    
+
 
 doFovQuadrant :: (Functor m, Monad m) => WallCheck m -> Pos -> (Int, Int) -> m [Pos]
 doFovQuadrant check startPos posFlip = do
@@ -69,33 +69,43 @@ doFovQuadrant check startPos posFlip = do
         walk (tile:tiles) views = do
             let realPos = (tile <*> posFlip) <+> startPos
             isBlocking <- check realPos
+            -- Check this tile's impact against all views
             let results = map (processTile tile isBlocking) views
+            -- The new list of views
             let views' = filter viewValid . map checkForPreviousBumps . nub . concat . map snd $ results
+            -- The tile is visible if it was visible in at least one of the views.
             let isVisible = or . map fst $ results
+            -- Continue to the next tile
             rest <- walk tiles views'
             return $ if isVisible
                         then realPos : rest
                         else           rest
         walk _ _ = return []
 
+-- Operator to offset a position
 (<+>) :: Pos -> Pos -> Pos
 (x1, y1) <+> (x2, y2) = (x1 + x2, y1 + y2)
 
+-- Operator to multiply positions.
+-- Used to map a relative quadrant coordinate into an absolute position.
 (<*>) :: Pos -> Pos -> Pos
 (x1, y1) <*> (x2, y2) = (x1 * x2, y1 * y2)
 
+-- Operator to check if a position is within a view.
 (>-<) :: Pos -> View -> Bool
 pos >-< v = if
     | (shallow v) `belowOrContains` bottomLeft -> False
     | (steep v)   `aboveOrContains` topRight   -> False
-    | otherwise                  -> True
+    | otherwise                                -> True
     where
         bottomLeft = pos <+> (0, 1)
         topRight   = pos <+> (1, 0)
 
+-- Operator to set the end point of a line.
 (->>) :: Line -> Pos -> Line
 (L (p1, _)) ->> p = L (p1, p)
 
+-- Operator to set the start point of a line.
 (<<-) :: Pos -> Line -> Line
 p <<- (L (_, p2)) = L (p, p2)
 
@@ -125,15 +135,15 @@ processTile pos isBlocking v = if
     | not isBlocking -> (True, [v])
     -- Tile completely blocks the view
     | sh `below` topRight && st `above` bottomLeft -> (True, [])
+    -- Tile splitting the view
+    | sh `aboveOrContains` topRight && st `belowOrContains` bottomLeft ->
+        (True, [v { shallow = sh ->> bottomLeft }, v { steep = st ->> topRight }])
     -- Shallow bump
     | sh `above` bottomLeft && sh `belowOrContains` topRight ->
         (True, [processShallowBump v bottomLeft]) -- [v { shallow = sh ->> bottomLeft, shallowBumps = bottomLeft : (shallowBumps v) }])
     -- Steep bump
     | st `below` topRight && st `aboveOrContains` bottomLeft ->
         (True, [processSteepBump v topRight]) -- [v { steep = st ->> topRight, steepBumps = topRight : (steepBumps v) }])
-    -- Tile splitting the view
-    | sh `above` topRight && st `below` bottomLeft ->
-        (True, [v { shallow = sh ->> bottomLeft }, v { steep = st ->> topRight }])
     | otherwise -> error $ "Pos : " ++ (show pos) ++ " View : " ++ (show v)
     where
         sh = shallow v
