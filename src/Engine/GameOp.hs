@@ -2,7 +2,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
 
-module TinyRoguelike.Engine.GameOp
+module Engine.GameOp
 ( GameOp, runGameOp, execGameOp, evalGameOp
 , GameState
 , mkGame
@@ -22,8 +22,7 @@ import System.Random
 import Data.Maybe
 import Data.Grid
 import Data.List
-import Control.Applicative
-import TinyRoguelike.Engine
+import Engine.Engine
 import FovPrecisePermissive
 
 
@@ -43,6 +42,13 @@ instance Functor GameOp where
     fmap fn m = GameOpCtor $ \game -> do
         (ret, game') <- _gameOpFn m game
         return (fn ret, game')
+
+instance Applicative GameOp where
+    pure ret = GameOpCtor $ \game -> return (ret, game)
+    (GameOpCtor l) <*> (GameOpCtor r) = GameOpCtor $ \game -> do
+        (fn, _) <- l game
+        (val, _) <- r game
+        return $ (fn val, game)
 
 instance Monad GameOp where
     return ret = GameOpCtor $ \game -> return (ret, game)

@@ -67,7 +67,7 @@ doFovQuadrant check startPos posFlip = do
     where
         walk _ [] = return []
         walk (tile:tiles) views = do
-            let realPos = (tile <*> posFlip) <+> startPos
+            let realPos = (tile ~* posFlip) ~+ startPos
             isBlocking <- check realPos
             -- Check this tile's impact against all views
             let results = map (processTile tile isBlocking) views
@@ -83,13 +83,13 @@ doFovQuadrant check startPos posFlip = do
         walk _ _ = return []
 
 -- Operator to offset a position
-(<+>) :: Pos -> Pos -> Pos
-(x1, y1) <+> (x2, y2) = (x1 + x2, y1 + y2)
+(~+) :: Pos -> Pos -> Pos
+(x1, y1) ~+ (x2, y2) = (x1 + x2, y1 + y2)
 
 -- Operator to multiply positions.
 -- Used to map a relative quadrant coordinate into an absolute position.
-(<*>) :: Pos -> Pos -> Pos
-(x1, y1) <*> (x2, y2) = (x1 * x2, y1 * y2)
+(~*) :: Pos -> Pos -> Pos
+(x1, y1) ~* (x2, y2) = (x1 * x2, y1 * y2)
 
 -- Operator to check if a position is within a view.
 (>-<) :: Pos -> View -> Bool
@@ -98,8 +98,8 @@ pos >-< v = if
     | (steep v)   `aboveOrContains` topRight   -> False
     | otherwise                                -> True
     where
-        bottomLeft = pos <+> (0, 1)
-        topRight   = pos <+> (1, 0)
+        bottomLeft = pos ~+ (0, 1)
+        topRight   = pos ~+ (1, 0)
 
 -- Operator to set the end point of a line.
 (->>) :: Line -> Pos -> Line
@@ -148,8 +148,8 @@ processTile pos isBlocking v = if
     where
         sh = shallow v
         st = steep v
-        bottomLeft = pos <+> (0, 1)
-        topRight   = pos <+> (1, 0)
+        bottomLeft = pos ~+ (0, 1)
+        topRight   = pos ~+ (1, 0)
 
 
 --foldQuadrant :: (Pos -> acc -> acc) -> acc -> acc

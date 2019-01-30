@@ -24,7 +24,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as MV
 import Control.Monad.Identity
 import Control.Monad.ST
-import Control.Applicative
 
 
 data Grid o = GridCtor {
@@ -95,6 +94,18 @@ data GridOp o r = GridOpCtor { gridOpFn :: forall s. MGrid s o -> ST s (Either S
 instance Functor (GridOp o) where
     fmap f m = GridOpCtor $ \mg -> f <$> gridOpFn m mg
 -}
+
+instance Functor (GridOp o) where
+    fmap f (GridOpCtor fn) = GridOpCtor $ \mg -> do
+        result <- fn mg
+        return $ f <$> result
+
+instance Applicative (GridOp o) where
+    pure r = GridOpCtor $ \_ -> return (Right r)
+    l <*> r = GridOpCtor $ \mg -> do
+        fn <- gridOpFn l mg
+        val <- gridOpFn r mg
+        return $ fn <*> val
 
 instance Monad (GridOp o) where
     fail str = GridOpCtor $ \_ -> return (Left str)

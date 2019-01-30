@@ -2,16 +2,15 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
 
-module TinyRoguelike.Engine.NpcOp
+module Engine.NpcOp
 ( NpcOp, runNpcOp
 , runLevelOp
 , npcWalk, whoAmI
 ) where
 
-import TinyRoguelike.Engine
-import TinyRoguelike.Engine.GameOp
+import Engine.Engine
+import Engine.GameOp
 import Data.Grid
-import Control.Applicative
 
 
 data NpcOp r = NpcOpCtor { _npcOpFn :: Pos -> GameOp (r, Pos) }
@@ -20,6 +19,13 @@ instance Functor NpcOp where
     fmap fn m = NpcOpCtor $ \pos -> do
         (ret, pos') <- _npcOpFn m pos
         return (fn ret, pos')
+
+instance Applicative NpcOp where
+    pure ret = NpcOpCtor $ \pos -> return (ret, pos)
+    l <*> r = NpcOpCtor $ \pos -> do
+        (fn, _) <- _npcOpFn l pos
+        (val, _) <- _npcOpFn r pos
+        return (fn val, pos)
 
 instance Monad NpcOp where
     return ret = NpcOpCtor $ \pos -> return (ret, pos)

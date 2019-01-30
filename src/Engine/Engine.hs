@@ -2,7 +2,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TupleSections #-}
 
-module TinyRoguelike.Engine
+module Engine.Engine
 ( Floor (..)
 , Wall (..), blocksMove
 , Item (..)
@@ -27,7 +27,7 @@ import Data.Grid
 import Data.List
 import Data.Either.Unwrap
 import Control.Monad
-import TinyRoguelike.LevelParser
+import Engine.LevelParser
 import Text.Read
 
 import Language.Haskell.TH hiding (match)
@@ -162,15 +162,15 @@ buildLevel desc = case runGridOp emptyLevel buildOp of
         buildOp = do
             allTiles <- forM (zip [0..] (tiles desc)) $ \(i, ch) -> do
                 let tileE = do
-                    -- Lookup the tile symbol
-                    (floorStr, itemStr, wallStr, avatarStr) <- lookupTileDef ch (table desc)
-                    -- Convert the tile objects
-                    floor  <- toObject floorStr "floor"
-                    item   <- toObject itemStr "item"
-                    wall   <- toObject wallStr "wall"
-                    avatar <- toAvatar avatarStr i
-                    -- And build a tile
-                    return $ mkTile floor item wall avatar
+                                -- Lookup the tile symbol
+                                (floorStr, itemStr, wallStr, avatarStr) <- lookupTileDef ch (table desc)
+                                -- Convert the tile objects
+                                floor  <- toObject floorStr "floor"
+                                item   <- toObject itemStr "item"
+                                wall   <- toObject wallStr "wall"
+                                avatar <- toAvatar avatarStr i
+                                -- And build a tile
+                                return $ mkTile floor item wall avatar
                 -- If there were no errors building the tile then place it in the level.
                 case tileE of
                     Left _ -> return tileE

@@ -6,10 +6,9 @@
 import System.Random
 import Data.Grid
 import Control.Monad
-import Control.Applicative
-import TinyRoguelike.Engine
-import TinyRoguelike.Engine.GameOp
-import TinyRoguelike.Engine.NpcOp
+import Engine.Engine
+import Engine.GameOp
+import Engine.NpcOp
 import UI.HSCurses.Curses
 --import FovPrecisePermissive
 
@@ -112,7 +111,6 @@ main = do
     _ <- getch
     delWin win
     endWin
-    update
     return ()
 
 --------------------------------------------------
@@ -217,11 +215,12 @@ findAllNpcs = foldNpcs foldFn []
 
 renderGame win game frameNum = do
     wclear win
+    let frame = do
+                    r <- printLevel
+                    m <- getLastFrameMessages
+                    return (r, m)
     -- Print the level
-    let ((render, messages), _) = runGameOp game $ do
-        r <- printLevel
-        m <- getLastFrameMessages
-        return (r, m)
+    let ((render, messages), _) = runGameOp game frame
     forM_ (zip [0..] render) $ \(i, line) -> do
         wMove win i 0
         wAddStr win line
@@ -250,12 +249,13 @@ gameLoop win game frameNum = do
     case act of
         QuitGame -> return game
         _        -> do
-            let game' = execGameOp game $ do
-                beginMessageFrame
-                checkActionContext act >>= playerAct
-                processFov
-                npcs <- findAllNpcs
-                forM_ npcs $ \npc -> runNpcOp npc npcAct
+            let op = do
+                        beginMessageFrame
+                        checkActionContext act >>= playerAct
+                        processFov
+                        npcs <- findAllNpcs
+                        forM_ npcs $ \npc -> runNpcOp npc npcAct
+            let game' = execGameOp game op
             gameLoop win game' (frameNum + 1)
 
 npcAct :: NpcOp ()

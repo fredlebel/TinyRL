@@ -1,13 +1,11 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
-module TinyRoguelike.LevelParser
+module Engine.LevelParser
 ( LevelDescription (..)
 , parseLevelDescription
-, levelDesc -- Quasiquoter
+--, levelDesc -- Quasiquoter
 )
 where
-import Language.Haskell.TH
-import Language.Haskell.TH.Quote
 
 import Data.Generics
 import Text.Parsec
@@ -95,39 +93,4 @@ parseLevelDesc = do
     --when ((w*h) /= length tiles) $ do
     --    unexpected "Not enough tiles."
     return $ LevelDesc tileLookup dim tilesChars
-
--- The Quasi Quoter
-
-parseLevelForQuoter :: Monad m => (String, Int, Int) -> String -> m LevelDescription
-parseLevelForQuoter (file, line, col) str =
-    case runParser p () "" str of
-      Left err  -> fail $ show err
-      Right e   -> return e
-    where
-        p = do
-            pos <- getPosition
-            setPosition $
-                flip setSourceName file $
-                flip setSourceLine line $
-                setSourceColumn pos col
-            parseLevelDesc
-
-quoteLevelE :: String -> Q Exp
-quoteLevelE str = do
-    loc <- location
-    let pos = (loc_filename loc,
-                fst (loc_start loc),
-                snd (loc_start loc))
-
-    desc <- parseLevelForQuoter pos str
-    dataToExpQ (const Nothing) desc
-
-
-levelDesc :: QuasiQuoter
-levelDesc = QuasiQuoter
-    { quoteExp = quoteLevelE
-    , quotePat = fail
-    , quoteType = fail
-    , quoteDec = fail
-    }
 
